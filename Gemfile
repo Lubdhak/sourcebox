@@ -5,6 +5,21 @@ ruby file: ".ruby-version"
 # --- Core ---------------------------------------------------------------
 gem "rails", "~> 8.1.3", ">= 8.1.3.1"
 gem "pg", "~> 1.6"
+
+# Pinned below 3.0 deliberately.
+#
+# json 3.0 made JSON.parse keyword-only:
+#   def parse(source, on_load: nil, object_class: nil, array_class: nil, **options)
+#
+# ActiveSupport::JSON.decode still calls `::JSON.parse(json, options)` with a positional
+# hash, so with json 3.x every read of a JSONB column raises
+# `ArgumentError: wrong number of arguments (given 2, expected 1)`.
+# Ruby 3.4 ships json 2.9.1 as a default gem, so this is also the version the
+# interpreter itself expects.
+#
+# Revisit when Rails ships a release whose active_support/json/decoding.rb passes
+# options as keywords.
+gem "json", "~> 2.9"
 gem "puma", "~> 8.0"
 
 # Reduces boot times through caching; required in config/boot.rb

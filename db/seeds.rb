@@ -13,8 +13,10 @@ if Rails.env.production?
   exit 1
 end
 
-# Bypass the after_create_commit event while seeding: it would enqueue a welcome email
-# and analytics job for every fixture user.
+# Creating users here does fire User's after_create_commit hook, which emits
+# `user.created` and enqueues NotificationJob and AnalyticsEventJob. That is left in
+# place on purpose: it gives a fresh checkout a few jobs on the queue, so `./dev up` shows
+# the worker doing real work instead of idling.
 DEMO_PASSWORD = "sourcebox-dev-password"
 
 SEED_USERS = [

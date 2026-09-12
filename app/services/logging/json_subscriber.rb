@@ -24,7 +24,20 @@ module Logging
     rescue StandardError => e
       # A logging failure must never take down the request that triggered it.
       # Fall back to a single-line marker on stderr and move on.
-      warn(%({"event":"logging.failure","error_class":"#{e.class}"}))
+      #
+      # The message and location are included only outside production. An exception
+      # message can quote the value that caused it, and that value may be user data --
+      # which is precisely what this subscriber exists to keep out of the logs. In
+      # development the tradeoff flips: a bare error class is undebuggable.
+      warn(JSON.generate(
+        {
+          event: "logging.failure",
+          error_class: e.class.name,
+          error_message: (e.message if Rails.env.local?),
+          error_source: (e.backtrace&.first if Rails.env.local?),
+          failed_event: event[:name],
+        }.compact
+      ))
     end
 
     private
