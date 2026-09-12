@@ -1,0 +1,170 @@
+# =========================
+# Rails
+# =========================
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+
+/storage/*
+!/storage/.keep
+
+/public/assets
+/public/packs
+/public/vite
+/public/vite-dev
+/public/uploads
+
+.byebug_history
+
+# Rails credentials / secrets
+/config/master.key
+/config/credentials/*.key
+
+# =========================
+# Environment
+# =========================
+.env
+.env.*
+!.env.example
+!.env.test.example
+!.env.production.example
+
+# =========================
+# Ruby / Bundler
+# =========================
+.bundle/
+/vendor/bundle/
+
+# =========================
+# Node / React / Vite
+# =========================
+node_modules/
+/.npm
+/.yarn
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vite
+dist/
+.vite/
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+
+# =========================
+# Docker
+# =========================
+docker-compose.override.yml
+
+# =========================
+# Coverage / Testing
+# =========================
+/coverage/
+/spec/tmp/
+/tmp/capybara/
+
+# =========================
+# Database
+# =========================
+*.sqlite3
+*.sqlite3-*
+/db/*.sqlite3
+/db/*.sqlite3-*
+
+# =========================
+# macOS
+# =========================
+.DS_Store
+
+# =========================
+# Linux
+# =========================
+*~
+
+# =========================
+# Windows
+# =========================
+Thumbs.db
+Desktop.ini
+
+# =========================
+# IDEs
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# VS Code local config
+.vscode/*
+!.vscode/settings.example.json
+
+# =========================
+# RubyMine / IntelliJ
+# =========================
+*.iml
+
+# =========================
+# OS / Editor temporary files
+# =========================
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# =========================
+# Test artifacts
+# =========================
+/tmp/screenshots/
+/tmp/capybara/
+
+# =========================
+# Generated documentation
+# =========================
+/docs/.vitepress/dist/
+
+# =========================
+# Local Docker data
+# =========================
+docker-data/
+postgres-data/
+
+# =========================
+# Local development scripts
+# =========================
+*.local.sh
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# GraphQL generated files
+# =========================
+/app/graphql/generated/
+/app/frontend/graphql/generated/
+
+# =========================
+# Generated build artifacts
+# =========================
+/build/
+/dist/
+
+# =========================
+# Secrets / certificates
+# =========================
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Keep example certificates if needed
+!*.example.pem
+!*.example.key
