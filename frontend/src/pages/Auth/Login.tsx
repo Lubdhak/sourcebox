@@ -5,7 +5,7 @@ import type { LoginPageProps } from '@/types'
  * Google is the only identity provider, so this page has no fields — just a button that
  * hands off to OAuth.
  */
-export default function Login({ googleAuthPath, error }: LoginPageProps) {
+export default function Login({ googleAuthPath, allowPasswordSignIn, error }: LoginPageProps) {
   // Read at render time from the layout's meta tag.
   const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ''
 
@@ -70,6 +70,72 @@ export default function Login({ googleAuthPath, error }: LoginPageProps) {
               Continue with Google
             </button>
           </form>
+
+          {/*
+            Development-only email/password form.
+
+            Rendered only when the server says so, never on the strength of a client-side
+            environment check: `import.meta.env.DEV` is a build-time flag, so a production
+            build made with the wrong NODE_ENV would ship a live password form. The server
+            is the only thing that actually knows which environment it is running in.
+          */}
+          {allowPasswordSignIn && (
+            <>
+              <div className="my-6 flex items-center gap-3">
+                <span className="h-px flex-1 bg-slate-200" />
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Dev only
+                </span>
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+
+              {/* Posts to Devise's session route as a normal form. Devise redirects on
+                  both success and failure, which Inertia follows as a visit. */}
+              <form action="/users/sign_in" method="post" className="space-y-3">
+                <input type="hidden" name="authenticity_token" value={csrfToken} />
+
+                <div>
+                  <label htmlFor="email" className="block text-xs font-medium text-slate-600">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    name="user[email]"
+                    type="email"
+                    autoComplete="username"
+                    required
+                    defaultValue="ada@sourcebox.dev"
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="password" className="block text-xs font-medium text-slate-600">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    name="user[password]"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                >
+                  Sign in
+                </button>
+
+                <p className="text-center text-xs text-slate-400">
+                  Seeded accounts use the password from <code>db/seeds.rb</code>.
+                </p>
+              </form>
+            </>
+          )}
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-400">

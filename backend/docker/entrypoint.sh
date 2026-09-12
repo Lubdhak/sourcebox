@@ -22,17 +22,30 @@ fi
 wait_for_database() {
   local attempts=${DB_WAIT_ATTEMPTS:-30}
   local i=1
+  local output=""
 
   while [ "$i" -le "$attempts" ]; do
-    if bin/rails runner 'ActiveRecord::Base.connection.select_value("SELECT 1")' >/dev/null 2>&1; then
+    if output=$(bin/rails runner 'ActiveRecord::Base.connection.select_value("SELECT 1")' 2>&1); then
       return 0
     fi
+
+    # An application that cannot boot is NOT a database that is not ready, and treating
+    # them the same way turns a one-line initializer bug into 60 seconds of misleading
+    # "waiting for database" output followed by the wrong error. If the failure is not
+    # connection-related, fail immediately and show the real exception.
+    if ! printf '%s' "$output" | grep -qiE 'could not connect|connection refused|could not translate host|the database system is starting up|Connection reset|PG::ConnectionBad|ActiveRecord::(NoDatabaseError|ConnectionNotEstablished)'; then
+      echo '{"event":"entrypoint.boot_failed","level":"error","reason":"application failed to boot; this is not a database connectivity problem"}' >&2
+      printf '%s\n' "$output" >&2
+      return 1
+    fi
+
     echo "{\"event\":\"entrypoint.waiting_for_database\",\"attempt\":$i,\"of\":$attempts}"
     sleep 2
     i=$((i + 1))
   done
 
   echo '{"event":"entrypoint.database_unreachable","level":"error"}' >&2
+  printf '%s\n' "$output" >&2
   return 1
 }
 

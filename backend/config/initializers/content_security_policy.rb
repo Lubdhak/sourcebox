@@ -34,17 +34,24 @@ Rails.application.configure do
       []
     end
 
+  # Compacted before being splatted: Rails raises
+  # `ArgumentError: Invalid content security policy source: nil` rather than ignoring a nil
+  # source, and asset_host is legitimately nil in development.
+  sources = ->(*values) { values.flatten.compact }
+
   config.content_security_policy do |policy|
     policy.default_src :self
 
-    policy.script_src  :self, asset_host, *vite_dev_origins
-    policy.style_src   :self, asset_host, *vite_dev_origins,
-                       # Vite injects <style> blocks in development, and some component
-                       # libraries set inline styles. Scoped to styles only: an inline
-                       # style is a far smaller risk than inline script.
-                       :unsafe_inline
-    policy.font_src    :self, asset_host, :data
-    policy.connect_src :self, asset_host, *vite_dev_origins, *vite_dev_websockets
+    policy.script_src(*sources.call(:self, asset_host, vite_dev_origins))
+    policy.style_src(*sources.call(
+      :self, asset_host, vite_dev_origins,
+      # Vite injects <style> blocks in development, and some component libraries set
+      # inline styles. Scoped to styles only: an inline style is a far smaller risk than
+      # inline script.
+      :unsafe_inline
+    ))
+    policy.font_src(*sources.call(:self, asset_host, :data))
+    policy.connect_src(*sources.call(:self, asset_host, vite_dev_origins, vite_dev_websockets))
 
     # Google profile pictures come from lh3.googleusercontent.com, and the seed data uses
     # pravatar. `https:` for images is a deliberate, low-risk relaxation -- an image

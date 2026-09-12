@@ -61,5 +61,7 @@ export interface DashboardPageProps {
 
 export interface LoginPageProps {
   googleAuthPath: string
+  /** Development only: Google OAuth needs real credentials a fresh checkout lacks. */
+  allowPasswordSignIn: boolean
   error?: string
 }

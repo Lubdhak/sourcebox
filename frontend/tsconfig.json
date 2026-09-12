@@ -24,9 +24,12 @@
     "noEmit": true,
 
     "types": ["vite/client"],
-    "baseUrl": ".",
+
+    // TypeScript 7 removed `baseUrl`, so path mappings must be relative to this file.
+    // The matching runtime alias is in vite.config.ts — both are required: this one is
+    // for the typechecker, that one for the bundler.
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],

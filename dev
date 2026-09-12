@@ -149,11 +149,12 @@ compose() { docker compose -p "$COMPOSE_PROJECT" "$@"; }
 # --- Orchestration steps ------------------------------------------------
 
 build_images() {
-  local args=("$@")
   step "Building images"
   info "backend (Ruby) · frontend (Node) — built in parallel, backend shared with worker"
+  # "$@" rather than a local array: macOS ships bash 3.2, where expanding an empty array
+  # as "${arr[@]}" trips `set -u`. "$@" is special-cased and safe when empty.
   # backend and worker resolve to the same image, so Compose builds it once.
-  compose build "${args[@]}"
+  compose build "$@"
   ok "images ready"
 }
 
@@ -288,7 +289,11 @@ case "${1:-up}" in
   restart)
     require_docker
     shift
-    compose restart "${@:-${APP_SERVICES[@]}}"
+    if [ $# -gt 0 ]; then
+      compose restart "$@"
+    else
+      compose restart "${APP_SERVICES[@]}"
+    fi
     ;;
 
   shell|sh|bash)
