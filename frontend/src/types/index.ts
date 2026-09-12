@@ -54,6 +54,19 @@ export interface SharedProps {
   requestId?: string
 }
 
+/**
+ * `SharedProps` widened for `usePage`.
+ *
+ * Inertia declares `usePage<T extends PageProps>` where `PageProps` is
+ * `{ [key: string]: unknown }`, so a precise interface cannot be passed directly — it has
+ * no index signature and fails the constraint.
+ *
+ * The widening is deliberately confined to this alias instead of being added to
+ * `SharedProps` itself. An index signature on `SharedProps` would make every misspelled
+ * property resolve to `unknown` rather than error, everywhere the type is used.
+ */
+export type InertiaSharedProps = SharedProps & Record<string, unknown>
+
 export interface DashboardPageProps {
   dashboardId: string
   initialUiState: UiState

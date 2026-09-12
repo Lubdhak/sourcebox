@@ -1,0 +1,31 @@
+// Type-checks the build tooling, which runs in Node rather than the browser.
+//
+// Kept separate from tsconfig.json on purpose. The obvious shortcut is to add "node" to
+// the types array in the main config, but that makes Node globals visible to every file
+// under src/ — so `process.env.API_URL` in a React component would type-check cleanly and
+// then crash in the browser, which is exactly the mistake the typechecker should catch.
+//
+// The split is why `npm run typecheck` runs tsc twice, once per project.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+
+    // No DOM. This code never runs in a browser; `URL` and friends come from @types/node.
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts"]
+}

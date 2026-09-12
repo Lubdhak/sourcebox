@@ -2,7 +2,7 @@ import { Head, router, useHttp, usePage } from '@inertiajs/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { graphql, GraphQLRequestError } from '@/lib/graphql'
 import { logger } from '@/lib/logger'
-import type { DashboardPageProps, Layout, SharedProps, Theme, UiState } from '@/types'
+import type { DashboardPageProps, InertiaSharedProps, Layout, Theme, UiState } from '@/types'
 
 /**
  * The heavy-client-state page.
@@ -62,7 +62,7 @@ const THEMES: Theme[] = ['LIGHT', 'DARK', 'SYSTEM']
 const LAYOUTS: Layout[] = ['GRID', 'LIST']
 
 export default function DashboardShow({ dashboardId, initialUiState }: DashboardPageProps) {
-  const { currentUser } = usePage<SharedProps>().props
+  const { currentUser } = usePage<InertiaSharedProps>().props
 
   // Seeded from the Inertia props, so the first paint is real content. Because the
   // controller serializes in the same shape GraphQL returns, no conversion is needed.

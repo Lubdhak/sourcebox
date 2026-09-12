@@ -32,6 +32,8 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  // Application source only. `vite.config.ts` is covered by tsconfig.node.json, because it
+  // runs in Node and needs a different set of globals — see the comment in that file.
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist"]
 }

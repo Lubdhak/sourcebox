@@ -403,6 +403,7 @@ print_detached_notice() {
   ${C_DIM}The stack keeps running in the background. Closing a log window does not stop it.${C_RESET}
 
     Stop everything    ${C_BOLD}./dev down${C_RESET}
+    Restart everything    ${C_BOLD}./dev restart${C_RESET}
     Re-open windows    ${C_BOLD}./dev windows${C_RESET}
     Service status     ${C_BOLD}./dev ps${C_RESET}
 
