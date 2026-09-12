@@ -168,3 +168,6 @@ postgres-data/
 # Keep example certificates if needed
 !*.example.pem
 !*.example.key
+# Ignore key files for decrypting credentials and more.
+/config/*.key
+
