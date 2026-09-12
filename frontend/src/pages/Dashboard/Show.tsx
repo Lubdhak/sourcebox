@@ -287,8 +287,9 @@ export default function DashboardShow({ dashboardId, initialUiState }: Dashboard
  * Sign-out, demonstrating Inertia v3's `useHttp`.
  *
  * `useHttp` is the right tool when a request is a *server action* that should participate
- * in Inertia's lifecycle: it tracks `processing`, exposes server-side validation errors in
- * `errors`, and follows the redirect Rails responds with as a page visit.
+ * in Inertia's request lifecycle (CSRF, `processing`) without being a page visit of its
+ * own. Unlike `router.delete`, it does not follow a redirect as a visit — Devise's JSON
+ * destroy responds 204 — so after the session is gone we visit login ourselves.
  *
  * Contrast with the GraphQL client above: that is for client state, returns data rather
  * than a redirect, and must never touch history. Same page, two transports, chosen by what
@@ -304,7 +305,9 @@ function SignOutButton() {
     <button
       type="button"
       disabled={processing}
-      onClick={() => void submit()}
+      onClick={() =>
+        void submit().finally(() => router.visit('/login', { replace: true }))
+      }
       className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
     >
       {processing ? 'Signing out…' : 'Sign out'}
