@@ -9,19 +9,26 @@ module FrontendAssetsHelper
   # Renders every tag needed to boot the frontend, in the required order.
   #
   # Order is not cosmetic:
-  #   1. React Refresh preamble — must run before any component module is evaluated, or
-  #      hot reloading silently does not work.
-  #   2. Vite client — opens the HMR connection.
-  #   3. Stylesheets — before the module, so the browser can fetch CSS in parallel and
+  #   1. Stylesheets — before the module, so the browser can fetch CSS in parallel and
   #      render without a flash of unstyled content.
-  #   4. The entry module itself.
+  #   2. The entry module itself.
+  #
+  # Two tags that a Vite + React setup normally needs are deliberately absent, because
+  # HMR is disabled in vite.config.ts:
+  #
+  #   * The Vite client (`/@vite/client`). It is what opens the HMR websocket, and it
+  #     still contains that connect-and-retry logic even when the server has HMR off — so
+  #     including it produces a browser that fails to connect on a loop, against a server
+  #     that was never going to answer.
+  #   * The React Refresh preamble. @vitejs/plugin-react stops injecting `$RefreshReg$`
+  #     calls into modules once HMR is off, so nothing consumes the globals it defines.
+  #
+  # Both come back if HMR is re-enabled; see the comment in vite.config.ts.
   def frontend_assets_tags(entry = FrontendAssets::Manifest::DEFAULT_ENTRY)
     manifest = FrontendAssets::Manifest.instance
     resolved = manifest.entry(entry)
 
     tags = []
-    tags << react_refresh_tag(manifest) if manifest.dev_server?
-    tags << vite_client_tag(manifest) if manifest.dev_server?
     tags.concat(resolved.css.map { |href| stylesheet_tag(href) })
     tags.concat(resolved.preload.map { |href| modulepreload_tag(href) })
     tags << module_script_tag(resolved.js)
@@ -47,24 +54,4 @@ module FrontendAssetsHelper
     tag.link(rel: "modulepreload", href: href, crossorigin: "anonymous")
   end
 
-  def vite_client_tag(manifest)
-    tag.script(nil, type: "module", src: "#{manifest.dev_server_url.chomp('/')}/@vite/client")
-  end
-
-  # The preamble @vitejs/plugin-react normally injects into an HTML entry. Because Rails
-  # renders the HTML, it has to be emitted here instead.
-  #
-  # Carries the CSP nonce, so React Refresh works in development without relaxing the
-  # policy to :unsafe_inline.
-  def react_refresh_tag(manifest)
-    preamble = <<~JS
-      import RefreshRuntime from "#{manifest.dev_server_url.chomp('/')}/@react-refresh"
-      RefreshRuntime.injectIntoGlobalHook(window)
-      window.$RefreshReg$ = () => {}
-      window.$RefreshSig$ = () => (type) => type
-      window.__vite_plugin_react_preamble_installed__ = true
-    JS
-
-    javascript_tag(preamble, type: "module", nonce: true)
-  end
 end

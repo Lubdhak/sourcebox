@@ -121,11 +121,6 @@ services:
       # Absolute URLs Vite emits for assets referenced from inside CSS and JS. Host-side
       # address, because the browser is what fetches them.
       VITE_DEV_ORIGIN: http://localhost:${FRONTEND_PORT:-5173}
-      # Where the browser opens the HMR websocket.
-      VITE_HMR_HOST: localhost
-      # Docker Desktop on macOS and Windows does not deliver inotify events into Linux
-      # containers reliably, so without polling file changes are simply missed.
-      VITE_USE_POLLING: "true"
     volumes:
       - ./frontend:/app
       # A named volume, NOT a bind mount. node_modules is tens of thousands of tiny files;

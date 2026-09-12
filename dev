@@ -37,6 +37,9 @@
 #     window shows the current boot rather than an accumulation of previous ones.
 #   * Per-query SQL logging is off by default because it drowns the worker. `LOG_SQL=true`
 #     turns it back on.
+#   * Hot reload is off in both processes: Rails loads code once at boot and Vite serves
+#     without HMR or a file watcher. Source is still bind-mounted, so `./dev restart`
+#     applies an edit without a rebuild.
 #   * Written for the bash 3.2 that ships with macOS: no associative arrays, no `mapfile`,
 #     and no expansion of a possibly-empty array under `set -u`.
 set -euo pipefail
@@ -390,7 +393,7 @@ print_banner() {
     PostgreSQL   ${C_BLUE}postgres://localhost:${pg_port}${C_RESET}
 
   ${C_DIM}Open the app on the backend port — Rails renders the HTML and loads JS from Vite.${C_RESET}
-  ${C_DIM}Hot reload is on for both: Rails reloads per request, Vite pushes HMR updates.${C_RESET}
+  ${C_DIM}Hot reload is off. Apply a change with:  ./dev restart${C_RESET}
 
 BANNER
 }

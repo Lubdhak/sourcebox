@@ -16,16 +16,16 @@
 Rails.application.configure do
   asset_host = ENV["ASSET_HOST"].presence
 
-  # In development the frontend container serves modules and the HMR client from its own
-  # origin, so that origin has to be allowed explicitly for scripts, styles and the
-  # websocket.
+  # In development the frontend container serves modules from its own origin, so that
+  # origin has to be allowed explicitly for scripts and styles.
   dev_server = ENV["VITE_DEV_SERVER_URL"].presence
 
   vite_dev_origins = dev_server ? [ dev_server ] : []
 
-  # The HMR websocket is the same host and port over ws://. connect-src does not inherit
-  # from script-src, so it must be listed separately or hot reloading fails while
-  # everything else works -- a confusing failure worth avoiding.
+  # ws:// on the same host and port. HMR is currently disabled in vite.config.ts, so
+  # nothing opens this socket today. It stays allowed because connect-src does not inherit
+  # from script-src: turning HMR back on without this produces a page where every module
+  # loads and only live updates silently fail, which is an expensive thing to debug.
   vite_dev_websockets =
     if dev_server
       uri = URI.parse(dev_server)

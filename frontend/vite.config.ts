@@ -74,19 +74,23 @@ export default defineConfig({
     // from the browser.
     allowedHosts: ['localhost', '127.0.0.1', 'frontend'],
 
-    hmr: {
-      // Where the browser opens the HMR websocket. This is a host-side address, so it is
-      // localhost even though the server binds 0.0.0.0 inside the container.
-      host: process.env.VITE_HMR_HOST ?? 'localhost',
-      port: 5173,
-    },
+    // No HMR. The browser never refreshes on its own and never opens an HMR websocket;
+    // reload the page to see a change, and restart the container to rebuild the module
+    // graph:
+    //
+    //     ./dev restart frontend
+    //
+    // Vite still serves and transforms modules on request, so this remains a dev server
+    // rather than a static build — source maps, JSX and TS transforms all still work.
+    hmr: false,
 
+    // Stop watching the filesystem entirely. This is the setting that actually matters
+    // for CPU: reaching a bind mount through Docker Desktop's virtiofs makes inotify
+    // unreliable, so the watcher had to poll, and polling every 300ms over a shared
+    // volume is a constant background cost. With HMR off, a watcher would burn that cost
+    // to notify a client that no longer exists.
     watch: {
-      // Docker Desktop's file sharing does not deliver inotify events reliably to Linux
-      // containers on macOS or Windows, so file changes are missed. Polling costs a
-      // little CPU and is the difference between HMR working and not.
-      usePolling: process.env.VITE_USE_POLLING === 'true',
-      interval: 300,
+      ignored: ['**/*'],
     },
   },
 })

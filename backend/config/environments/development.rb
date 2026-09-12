@@ -3,30 +3,34 @@ require "active_support/core_ext/integer/time"
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
-  # Make code changes take effect immediately without server restart.
-  config.enable_reloading = true
-
-  # Poll for file changes rather than subscribing to filesystem events.
+  # Code is loaded once at boot and never reloaded. Pick up a change with:
   #
-  # Set explicitly, and deliberately NOT ActiveSupport::EventedFileUpdateChecker. The
-  # evented checker uses the `listen` gem, which relies on inotify on Linux — and inotify
-  # events do not propagate from the macOS or Windows host into a Linux container through
-  # Docker Desktop's file sharing. With the evented checker the app silently stops
-  # reloading: edits are saved, the browser reloads, and the old code still runs.
+  #     ./dev restart backend worker
   #
-  # FileUpdateChecker stats the watched files once per request instead. That costs a few
-  # milliseconds per request and always works, which is the right trade in development.
-  config.file_watcher = ActiveSupport::FileUpdateChecker
+  # This trades edit-to-effect latency for a dev process that behaves exactly like
+  # production. What it buys:
+  #
+  #   * No file watcher. The polling watcher stat'd the whole autoload path on every
+  #     request, which is the one reliable option across Docker Desktop's file sharing
+  #     (inotify events do not cross it) and also the expensive one.
+  #   * No reload interlock, and therefore no class of bug where a constant resolves on
+  #     the request thread but raises NameError when first touched from a thread outside
+  #     the interlock — which is exactly how Solid Queue's pollers silently replaced
+  #     every worker log line with a `logging.failure` marker.
+  #   * No half-reloaded state, where a renamed constant or an edited initializer leaves
+  #     the process disagreeing with the source on disk.
+  config.enable_reloading = false
 
-  # Rebuilt on every reload so an edited component's hashed filename is picked up without
-  # restarting the server. In dev-server mode the manifest is not used at all, but this
-  # keeps behaviour identical when running development against a built frontend.
+  # Load everything at boot, which is the consistent pairing with reloading disabled: no
+  # lazy autoloading happens later from an arbitrary thread, and a file that does not
+  # parse or a missing constant fails the boot instead of the first request that hits it.
+  config.eager_load = true
+
+  # Runs once at boot now that reloading is off. Kept so that development running against
+  # a built frontend resolves the manifest from a clean state.
   config.to_prepare do
     FrontendAssets::Manifest.reset!
   end
-
-  # Do not eager load code on boot.
-  config.eager_load = false
 
   # Show full error reports.
   config.consider_all_requests_local = true
