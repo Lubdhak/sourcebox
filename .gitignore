@@ -175,3 +175,5 @@ postgres-data/
 # Corporate proxy CAs are machine-specific; never commit them.
 /docker/certs/*.crt
 !/docker/certs/.keep
+backend/tmp/*
+*.keep

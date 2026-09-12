@@ -1,0 +1,152 @@
+# Production-oriented composition.
+#
+# NOT the development workflow. `./dev` is for development only: it mounts your working
+# tree over the image, runs the Vite dev server, and enables code reloading. None of that
+# belongs in production.
+#
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Three application images, each deployable on its own:
+#
+#   frontend  nginx + hashed Vite output.   No Ruby, no database. Scales with asset
+#                                           traffic, or is replaced by a CDN entirely.
+#   web       Rails serving HTML + GraphQL. Scales with request traffic.
+#   worker    Solid Queue.                  Scales with job backlog.
+#
+# `web` and `worker` share one image and differ only by command, so a deploy can never
+# run mismatched application code in the request path and the queue. `frontend` is built
+# from the same `build` stage, so its assets and the manifest Rails reads always agree.
+#
+# Postgres is included so the whole thing is runnable locally for verification. In a real
+# deployment use managed Postgres and delete that service.
+
+name: sourcebox-prod
+
+x-app-image: &app-image
+  image: sourcebox-app:${APP_VERSION:-latest}
+  build:
+    context: .
+    target: production
+    args:
+      RUBY_VERSION: "3.4.10"
+      NODE_VERSION: "24"
+
+x-app-env: &app-env
+  RAILS_ENV: production
+  # Structured JSON on stdout; the container runtime collects it.
+  RAILS_LOG_TO_STDOUT: "1"
+  RAILS_LOG_LEVEL: ${RAILS_LOG_LEVEL:-info}
+  # Points every rendered asset URL at the frontend container. Remove to serve assets
+  # from Rails instead.
+  ASSET_HOST: ${ASSET_HOST:-http://localhost:8080}
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_DB:-sourcebox}
+  POSTGRES_USER: ${POSTGRES_USER:-sourcebox_dev}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID is required}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET is required}
+  # SSL is terminated at the load balancer in front of this stack.
+  RAILS_ASSUME_SSL: "1"
+
+services:
+  # --- Frontend: independently deployable static assets -----------------
+  frontend:
+    image: sourcebox-frontend:${APP_VERSION:-latest}
+    build:
+      context: .
+      target: frontend
+    # Deliberately has no depends_on and no environment: it serves files. It stays up and
+    # keeps serving the previous release's assets even if Rails or Postgres is down, which
+    # is what makes independent deploys safe.
+    ports:
+      - "${FRONTEND_PORT:-8080}:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/healthz" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # --- Web: HTML + GraphQL ----------------------------------------------
+  web:
+    <<: *app-image
+    command: [ "bin/rails", "server", "-b", "0.0.0.0", "-p", "3000" ]
+    environment: *app-env
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Not a hard dependency for correctness -- Rails only needs the manifest, which is
+      # in its own image -- but starting the asset host first avoids a window where the
+      # first page loads without styles.
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Readiness, not liveness: behind a load balancer we want an instance pulled from
+      # rotation when its database connection is broken.
+      test: [ "CMD", "ruby", "-e", "require 'net/http'; exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/ready')).code == '200' ? 0 : 1)" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  # --- Worker: Solid Queue ----------------------------------------------
+  worker:
+    <<: *app-image
+    command: [ "bin/jobs" ]
+    environment:
+      <<: *app-env
+      JOB_CONCURRENCY: ${JOB_CONCURRENCY:-2}
+      JOB_CONCURRENCY_CRITICAL: ${JOB_CONCURRENCY_CRITICAL:-1}
+    # No ports. A worker that is reachable over HTTP is a misconfiguration.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [ "CMD", "bin/rails", "solid_queue:check" ]
+      interval: 60s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
+
+  # --- Postgres: replace with managed Postgres in a real deployment -----
+  postgres:
+    image: postgres:18-trixie
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sourcebox}
+      POSTGRES_USER: ${POSTGRES_USER:-sourcebox_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      # PostgreSQL 18 moved PGDATA to /var/lib/postgresql/18/docker, and the image
+      # declares the volume at /var/lib/postgresql. Using the pre-18
+      # /var/lib/postgresql/data here would silently persist nothing.
+      - postgres_data:/var/lib/postgresql
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    # Not published. Only the application containers need to reach the database.
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sourcebox_dev} -d ${POSTGRES_DB:-sourcebox}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:

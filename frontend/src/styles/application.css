@@ -1,0 +1,53 @@
+/*
+ * Tailwind CSS v4.
+ *
+ * v4 is CSS-first: there is no tailwind.config.js and no postcss.config.js. The single
+ * @import pulls in the framework, and design tokens are declared with @theme below,
+ * which generates the corresponding utilities.
+ *
+ * The Vite plugin (@tailwindcss/vite) handles scanning and compilation, so content paths
+ * are not configured either.
+ */
+@import "tailwindcss";
+
+@theme {
+  /* Named so the dashboard can reference brand colours as bg-brand-500 etc. rather than
+     hard-coding hex values in components. */
+  --color-brand-50: oklch(0.97 0.02 250);
+  --color-brand-100: oklch(0.93 0.04 250);
+  --color-brand-500: oklch(0.58 0.16 250);
+  --color-brand-600: oklch(0.51 0.16 250);
+  --color-brand-700: oklch(0.44 0.14 250);
+
+  --font-sans: "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+/*
+ * Dark mode is driven by an explicit class on <html> rather than
+ * prefers-color-scheme, because theme is server-persisted state: the user's choice is
+ * stored in dashboards.ui_state and must win over the OS setting.
+ *
+ * This redefines Tailwind's `dark:` variant to key off the class.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  /* Prevents the layout shift that otherwise happens when a page grows tall enough to
+     introduce a scrollbar. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  /* Respect users who have asked for less motion, globally rather than per component. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
