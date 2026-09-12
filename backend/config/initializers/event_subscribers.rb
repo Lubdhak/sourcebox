@@ -12,14 +12,28 @@
 # because emitters only ever call `Rails.event.notify`.
 Rails.application.configure do
   config.after_initialize do
-    # Structured logs for every event.
-    Rails.event.subscribe(
-      Logging::JsonSubscriber.new(
-        # Source location is useful when tracing an unfamiliar event back to its
-        # emitter, but it is noise in production log volume.
-        include_source: !Rails.env.production?
-      )
+    json_subscriber = Logging::JsonSubscriber.new(
+      # Source location is useful when tracing an unfamiliar event back to its
+      # emitter, but it is noise in production log volume.
+      include_source: !Rails.env.production?
     )
+
+    # `active_record.sql` fires once per query, which makes it the highest-volume event
+    # by a wide margin and, in the worker, the *only* one. Solid Queue's pollers check
+    # for work every half second, so an idle worker emits a steady BEGIN / SELECT
+    # solid_queue_ready_executions / COMMIT trio — roughly 18 lines a second before a
+    # single job has run. That buries the job lifecycle events the worker log exists to
+    # show, so query logging is opt-in per process:
+    #
+    #     LOG_SQL=true ./dev            (or set it on one service in docker-compose.yml)
+    #
+    # The filter block runs instead of the subscriber, so a suppressed event costs one
+    # string comparison rather than building and redacting a JSON payload.
+    if ActiveModel::Type::Boolean.new.cast(ENV.fetch("LOG_SQL", false))
+      Rails.event.subscribe(json_subscriber)
+    else
+      Rails.event.subscribe(json_subscriber) { |event| event[:name] != "active_record.sql" }
+    end
 
     # Async processing for domain events only. The filter proc means the dispatcher
     # is never even invoked for the high-frequency graphql.* and job.* events.

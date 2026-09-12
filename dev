@@ -2,10 +2,11 @@
 #
 # Single entry point for the development stack.
 #
-#   ./dev              Build and start everything (default)
+#   ./dev              Build and start everything, then open one log window per service
 #   ./dev down         Stop the stack and remove orphans
 #   ./dev rebuild      Force a no-cache image rebuild, then start
-#   ./dev logs [svc]   Follow logs
+#   ./dev windows      Re-open the four per-service log windows
+#   ./dev logs [svc]   Follow logs inline in this terminal
 #   ./dev shell [svc]  Interactive shell in a container
 #   ./dev console      Rails console
 #   ./dev dbconsole    psql session on the primary database
@@ -30,13 +31,26 @@
 #   * Compose is the single source of truth for the topology; this script only sequences
 #     it and fails loudly with actionable messages.
 #   * Nothing destructive ever runs automatically. No db:reset, no db:drop.
-#   * Ctrl+C shuts the stack down cleanly instead of orphaning containers.
+#   * `./dev` returns once the stack is up. The stack keeps running in the background and
+#     is stopped only by `./dev down`, so closing a log window never takes the app down.
+#   * Starting the stack clears logs/*.log and stops any leftover followers, so each log
+#     window shows the current boot rather than an accumulation of previous ones.
+#   * Per-query SQL logging is off by default because it drowns the worker. `LOG_SQL=true`
+#     turns it back on.
+#   * Written for the bash 3.2 that ships with macOS: no associative arrays, no `mapfile`,
+#     and no expansion of a possibly-empty array under `set -u`.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+readonly PROJECT_ROOT="$PWD"
 readonly COMPOSE_PROJECT="sourcebox"
 readonly APP_SERVICES=(backend worker frontend)
+
+# Every service that gets its own log window, in the order the windows open.
+readonly LOG_SERVICES=(postgres backend worker frontend)
+readonly LOG_DIR="logs"
+readonly LOG_TAIL=100
 
 # Each service's build context is its own directory, so a proxy CA has to be staged into
 # each one. This is the cost of keeping the contexts separable, and it is worth paying:
@@ -62,6 +76,24 @@ die() {
   for line in "$@"; do printf '        %s\n' "$line" >&2; done
   printf '\n'
   exit 1
+}
+
+# --- Quoting helpers ----------------------------------------------------
+#
+# Two separate escaping layers are needed to open a log window, and conflating them is how
+# a project path containing a space or an apostrophe breaks the script:
+#
+#   shell_quote      makes a value safe inside the command string the new shell will run
+#   applescript_quote makes that whole command safe inside an AppleScript string literal
+
+shell_quote() {
+  # Wrap in single quotes and escape any embedded single quote as '\''.
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+applescript_quote() {
+  # Backslashes first, then double quotes, or the escapes would be double-escaped.
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
 # --- Preflight ----------------------------------------------------------
@@ -197,6 +229,150 @@ start_services() {
   ok "all services started"
 }
 
+# --- Per-service log windows -------------------------------------------
+#
+# One iTerm2 window per service instead of a single interleaved stream. Four services
+# producing structured JSON into one terminal is unreadable in practice: a Rails backtrace
+# and Vite's HMR chatter end up shredded together. Separate windows also mean a noisy
+# service can be scrolled or searched without disturbing the others.
+#
+# Each window tees to logs/<service>.log so history survives closing the window, and so a
+# failure can be grepped after the fact rather than scrolled back to.
+#
+# Critically, these windows are only viewers. They run `docker compose logs`, which
+# attaches to an already-running stack, so closing a window — or all of them — leaves the
+# containers alone. Only `./dev down` stops anything.
+
+require_iterm() {
+  if [ "$(uname -s)" != "Darwin" ]; then
+    return 1
+  fi
+
+  command -v osascript >/dev/null 2>&1 || die \
+    "osascript is unavailable, so iTerm2 windows cannot be opened." \
+    "The stack is running. Follow logs inline with:  ./dev logs"
+
+  # Resolving the bundle id is the cheapest reliable installation check; it does not
+  # launch the app.
+  if ! osascript -e 'id of application "iTerm"' >/dev/null 2>&1; then
+    die "iTerm2 is not installed, so per-service log windows cannot be opened." \
+      "Install it:" \
+      "" \
+      "    brew install --cask iterm2" \
+      "" \
+      "The stack is already running. In the meantime, follow logs inline with:" \
+      "" \
+      "    ./dev logs            (all services, interleaved)" \
+      "    ./dev logs backend    (one service)"
+  fi
+
+  return 0
+}
+
+# Builds the shell command a log window runs.
+#
+# `2>&1` before the pipe so stderr is captured too — Rails writes plenty there, and losing
+# it is exactly the case where you need the log. `tee` keeps the output live on screen
+# while writing the file.
+log_window_command() {
+  local service="$1"
+  printf 'cd %s && docker compose -p %s logs -f --tail=%s %s 2>&1 | tee %s' \
+    "$(shell_quote "$PROJECT_ROOT")" \
+    "$(shell_quote "$COMPOSE_PROJECT")" \
+    "$(shell_quote "$LOG_TAIL")" \
+    "$(shell_quote "$service")" \
+    "$(shell_quote "$LOG_DIR/$service.log")"
+}
+
+open_log_window() {
+  local service="$1"
+  local command escaped_command escaped_title stderr status
+
+  command="$(log_window_command "$service")"
+  escaped_command="$(applescript_quote "$command")"
+  escaped_title="$(applescript_quote "$COMPOSE_PROJECT · $service")"
+
+  # `|| status=$?` rather than letting a non-zero exit kill the script: a permissions
+  # failure needs to be explained, not just propagated.
+  status=0
+  stderr=$(osascript <<APPLESCRIPT 2>&1 >/dev/null
+tell application "iTerm"
+  activate
+  set newWindow to (create window with default profile)
+  tell current session of newWindow
+    set name to "$escaped_title"
+    write text "$escaped_command"
+  end tell
+end tell
+APPLESCRIPT
+  ) || status=$?
+
+  if [ "$status" -ne 0 ]; then
+    # -1743 is macOS refusing the Apple event because this terminal has not been granted
+    # automation access. It is the single most common failure here, and the message
+    # macOS produces on its own is not actionable.
+    case "$stderr" in
+      *-1743*|*"Not authorized"*|*"not allowed"*)
+        die "macOS blocked this terminal from controlling iTerm2." \
+          "Grant automation access, then re-run ./dev windows:" \
+          "" \
+          "    System Settings → Privacy & Security → Automation" \
+          "    → enable iTerm for your terminal application" \
+          "" \
+          "The stack is already running; only the log windows failed to open."
+        ;;
+      *)
+        die "Could not open an iTerm2 window for '$service'." \
+          "osascript said:" \
+          "" \
+          "    $stderr" \
+          "" \
+          "The stack is already running. Follow logs inline with:  ./dev logs"
+        ;;
+    esac
+  fi
+}
+
+# Each run starts from a clean slate: stale followers are stopped and the log files this
+# script writes are removed. Without this, a second `./dev` leaves two `tee` processes
+# appending to every file and twice as many windows on screen, and the files grow across
+# boots until a search returns hits from a container that no longer exists.
+reset_log_files() {
+  mkdir -p "$LOG_DIR"
+
+  local service
+  for service in "${LOG_SERVICES[@]}"; do
+    # These processes are viewers — `docker compose logs` only reads. Stopping one never
+    # touches a container. `tee` exits on its own once its stdin closes.
+    pkill -f "compose -p $COMPOSE_PROJECT logs -f --tail=$LOG_TAIL $service" >/dev/null 2>&1 || true
+
+    # Unlink rather than truncate: a follower that outlives the pkill keeps writing to
+    # the old inode instead of leaving a hole of NULs at the head of the new file.
+    # Each file is named explicitly rather than `rm -rf logs/`, so anything else that
+    # happens to live in this directory survives.
+    rm -f "$LOG_DIR/$service.log"
+  done
+}
+
+open_log_windows() {
+  if ! require_iterm; then
+    warn "per-service log windows are macOS/iTerm2 only; streaming inline instead"
+    info "Ctrl+C detaches from the logs — the stack keeps running until ./dev down"
+    compose logs -f --tail="$LOG_TAIL" || true
+    return 0
+  fi
+
+  reset_log_files
+
+  step "Opening a log window per service"
+  local service
+  for service in "${LOG_SERVICES[@]}"; do
+    open_log_window "$service"
+    info "$service → $LOG_DIR/$service.log"
+  done
+  ok "${#LOG_SERVICES[@]} windows open"
+}
+
 print_banner() {
   local backend_port="${BACKEND_PORT:-3000}"
   local frontend_port="${FRONTEND_PORT:-5173}"
@@ -214,25 +390,20 @@ print_banner() {
     PostgreSQL   ${C_BLUE}postgres://localhost:${pg_port}${C_RESET}
 
   ${C_DIM}Open the app on the backend port — Rails renders the HTML and loads JS from Vite.${C_RESET}
-  ${C_DIM}Streaming logs. Ctrl+C stops the stack.${C_RESET}
+  ${C_DIM}Hot reload is on for both: Rails reloads per request, Vite pushes HMR updates.${C_RESET}
 
 BANNER
 }
 
-# Ctrl+C during log streaming must stop the stack, not just detach from the logs.
-shutdown() {
-  printf '\n'
-  step "Shutting down"
-  compose down --remove-orphans
-  ok "stopped"
-  exit 0
-}
+print_detached_notice() {
+  cat <<NOTICE
+  ${C_DIM}The stack keeps running in the background. Closing a log window does not stop it.${C_RESET}
 
-stream_logs() {
-  trap shutdown INT TERM
-  # --no-log-prefix is NOT used: the service-name prefix is what makes interleaved logs
-  # from backend/worker/frontend/postgres readable.
-  compose logs -f --tail=20 || true
+    Stop everything    ${C_BOLD}./dev down${C_RESET}
+    Re-open windows    ${C_BOLD}./dev windows${C_RESET}
+    Service status     ${C_BOLD}./dev ps${C_RESET}
+
+NOTICE
 }
 
 up() {
@@ -246,7 +417,8 @@ up() {
   prepare_database
   start_services
   print_banner
-  stream_logs
+  open_log_windows
+  print_detached_notice
 }
 
 # --- Command dispatch ---------------------------------------------------
@@ -259,13 +431,26 @@ case "${1:-up}" in
   rebuild)
     require_docker
     require_env_file
+    check_env_values
     stage_proxy_ca
     build_images --no-cache
     start_database
     prepare_database
     start_services
     print_banner
-    stream_logs
+    open_log_windows
+    print_detached_notice
+    ;;
+
+  windows)
+    require_docker
+    # Opening viewers for a stack that is not running would produce four windows that
+    # immediately print nothing, which looks like a broken script rather than a stopped app.
+    if [ -z "$(compose ps -q 2>/dev/null)" ]; then
+      die "Nothing is running, so there are no logs to follow." "Start the stack with:  ./dev"
+    fi
+    open_log_windows
+    print_detached_notice
     ;;
 
   down)
@@ -273,6 +458,7 @@ case "${1:-up}" in
     step "Stopping the stack"
     compose down --remove-orphans
     ok "stopped"
+    info "log windows will show 'no such service' or simply stop; closing them is safe"
     ;;
 
   logs)
@@ -377,7 +563,9 @@ case "${1:-up}" in
     ;;
 
   help|-h|--help)
-    sed -n '3,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    # The header comment block is the help text. Stopping at the first non-comment line
+    # rather than a hardcoded range means editing the header cannot desync the help output.
+    awk 'NR >= 3 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
     ;;
 
   *)

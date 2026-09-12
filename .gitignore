@@ -53,6 +53,9 @@ yarn-error.log*
 # =========================
 docker-compose.override.yml
 
+# Per-service log files written by the `./dev` log windows (tee'd from docker compose logs).
+/logs/
+
 # =========================
 # Test / coverage artifacts
 # =========================
