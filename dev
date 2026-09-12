@@ -1,0 +1,354 @@
+#!/usr/bin/env bash
+#
+# Single entry point for the development stack.
+#
+#   ./dev              Build and start everything (default)
+#   ./dev down         Stop the stack and remove orphans
+#   ./dev rebuild      Force a no-cache image rebuild, then start
+#   ./dev logs [svc]   Follow logs
+#   ./dev shell [svc]  Interactive shell in a container
+#   ./dev console      Rails console
+#   ./dev dbconsole    psql session on the primary database
+#   ./dev test         Run the test suite
+#   ./dev migrate      Run pending migrations
+#   ./dev prepare      Idempotent database preparation (create + migrate + queue schema)
+#   ./dev seed         Load development seed data (idempotent)
+#   ./dev restart      Restart application services
+#   ./dev ps           Show service status
+#   ./dev run ...      Run an arbitrary command in the web image
+#
+# Design notes:
+#   * Compose is the single source of truth for the topology; this script only
+#     sequences it and fails loudly with actionable messages.
+#   * Nothing destructive ever runs automatically. No db:reset, no db:drop.
+#   * Ctrl+C shuts the stack down cleanly instead of orphaning containers.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+readonly COMPOSE_PROJECT="sourcebox"
+readonly APP_SERVICES=(web worker vite)
+
+# --- Output helpers -----------------------------------------------------
+if [ -t 1 ]; then
+  readonly C_RESET=$'\033[0m' C_BOLD=$'\033[1m' C_DIM=$'\033[2m'
+  readonly C_RED=$'\033[31m' C_GREEN=$'\033[32m' C_YELLOW=$'\033[33m' C_BLUE=$'\033[34m'
+else
+  readonly C_RESET='' C_BOLD='' C_DIM='' C_RED='' C_GREEN='' C_YELLOW='' C_BLUE=''
+fi
+
+step() { printf '%s==>%s %s%s%s\n' "$C_BLUE" "$C_RESET" "$C_BOLD" "$1" "$C_RESET"; }
+info() { printf '    %s%s%s\n' "$C_DIM" "$1" "$C_RESET"; }
+ok()   { printf '    %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1"; }
+warn() { printf '%s warn %s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; }
+
+die() {
+  printf '\n%s error %s %s\n' "$C_RED" "$C_RESET" "$1" >&2
+  shift
+  for line in "$@"; do printf '        %s\n' "$line" >&2; done
+  printf '\n'
+  exit 1
+}
+
+# --- Preflight ----------------------------------------------------------
+
+require_docker() {
+  command -v docker >/dev/null 2>&1 || die \
+    "Docker is not installed." \
+    "Install Docker Desktop: https://docs.docker.com/desktop/"
+
+  docker compose version >/dev/null 2>&1 || die \
+    "The Docker Compose v2 plugin is unavailable." \
+    "Update Docker Desktop, or install the compose plugin."
+
+  if ! docker info >/dev/null 2>&1; then
+    local hint="Start it and re-run ./dev"
+    case "$(uname -s)" in
+      Darwin) hint="Start Docker Desktop:  open -a Docker" ;;
+      Linux)  hint="Start the daemon:      sudo systemctl start docker" ;;
+    esac
+    die "Docker is installed but the daemon is not running." "$hint"
+  fi
+}
+
+require_env_file() {
+  [ -f .env ] && return 0
+
+  die "No .env file found." \
+    "Create one from the template, then fill in the blanks:" \
+    "" \
+    "    cp .env.example .env" \
+    "" \
+    "At minimum set SECRET_KEY_BASE. Generate one with:" \
+    "" \
+    "    ./dev run bin/rails secret" \
+    "" \
+    "Google login additionally needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+}
+
+# Warn about placeholders rather than letting the app fail at runtime with a
+# confusing stack trace.
+check_env_values() {
+  local missing=()
+  # shellcheck disable=SC1091
+  local secret google_id
+  secret=$(grep -E '^SECRET_KEY_BASE=' .env | cut -d= -f2- || true)
+  google_id=$(grep -E '^GOOGLE_CLIENT_ID=' .env | cut -d= -f2- || true)
+
+  [ -z "$secret" ] && missing+=("SECRET_KEY_BASE is empty (run: ./dev run bin/rails secret)")
+  [ -z "$google_id" ] && missing+=("GOOGLE_CLIENT_ID is empty — Google login will not work")
+
+  if [ ${#missing[@]} -gt 0 ]; then
+    for m in "${missing[@]}"; do warn "$m"; done
+  fi
+}
+
+# Networks that intercept TLS (Zscaler, Netskope, corporate MITM proxies) break
+# `bundle install` and `npm install` inside containers, because the container trusts
+# neither the proxy's root CA nor — in Node's case — the system trust store at all.
+#
+# The host already trusts it, so detect the CA the host was configured with and stage
+# it where the Dockerfile picks it up. This turns an opaque TLS failure mid-build into
+# a no-op.
+stage_proxy_ca() {
+  mkdir -p docker/certs
+
+  # Already staged by hand.
+  if ls -A docker/certs/*.crt >/dev/null 2>&1; then
+    ok "corporate CA present in docker/certs/"
+    return 0
+  fi
+
+  local candidate=""
+  for var in NODE_EXTRA_CA_CERTS SSL_CERT_FILE CURL_CA_BUNDLE REQUESTS_CA_BUNDLE AWS_CA_BUNDLE; do
+    local value="${!var:-}"
+    if [ -n "$value" ] && [ -r "$value" ]; then candidate="$value"; break; fi
+  done
+
+  [ -z "$candidate" ] && return 0
+
+  cp "$candidate" docker/certs/proxy-ca.crt
+  ok "staged TLS-inspection CA from \$${var} into docker/certs/"
+  info "detected a TLS-inspecting proxy; builds would otherwise fail on HTTPS"
+}
+
+compose() { docker compose -p "$COMPOSE_PROJECT" "$@"; }
+
+# --- Orchestration steps ------------------------------------------------
+
+build_images() {
+  local args=("$@")
+  step "Building images"
+  # web, worker and vite all resolve to the same build, so Compose builds it once.
+  compose build "${args[@]}"
+  ok "images ready"
+}
+
+start_database() {
+  step "Starting PostgreSQL 18"
+  compose up -d postgres
+
+  info "waiting for the health check to pass"
+  local attempts=60 i=1 status
+  while [ "$i" -le "$attempts" ]; do
+    status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+      "$(compose ps -q postgres)" 2>/dev/null || echo "starting")
+
+    case "$status" in
+      healthy) ok "PostgreSQL is accepting connections"; return 0 ;;
+      unhealthy) die "PostgreSQL reported unhealthy." "Inspect it with:  ./dev logs postgres" ;;
+    esac
+
+    sleep 2
+    i=$((i + 1))
+  done
+
+  die "PostgreSQL did not become healthy in time." "Inspect it with:  ./dev logs postgres"
+}
+
+# Idempotent. db:prepare creates the databases if absent, runs pending migrations, and
+# loads db/queue_schema.rb into the queue database. On an existing database it is a
+# no-op beyond applying new migrations. It never drops anything.
+prepare_database() {
+  step "Preparing databases"
+  info "db:prepare — creates if missing, migrates if pending, never destructive"
+  compose run --rm --no-deps web bin/rails db:prepare
+  ok "schema up to date"
+}
+
+start_services() {
+  step "Starting application services"
+  info "web (Rails + Inertia + GraphQL) · worker (Solid Queue) · vite (HMR)"
+  compose up -d "${APP_SERVICES[@]}"
+  ok "all services started"
+}
+
+print_banner() {
+  cat <<BANNER
+
+  ${C_BOLD}Sourcebox is running${C_RESET}
+
+    App          ${C_BLUE}http://localhost:3000${C_RESET}
+    Login        ${C_BLUE}http://localhost:3000/login${C_RESET}
+    GraphQL      ${C_BLUE}http://localhost:3000/graphql${C_RESET}  (POST)
+    Health       ${C_BLUE}http://localhost:3000/health${C_RESET} · ${C_BLUE}/ready${C_RESET}
+    Vite HMR     ${C_BLUE}http://localhost:3036${C_RESET}
+    PostgreSQL   ${C_BLUE}postgres://localhost:5432${C_RESET}
+
+  ${C_DIM}Streaming logs. Ctrl+C stops the stack.${C_RESET}
+
+BANNER
+}
+
+# Ctrl+C during log streaming must stop the stack, not just detach from the logs.
+shutdown() {
+  printf '\n'
+  step "Shutting down"
+  compose down --remove-orphans
+  ok "stopped"
+  exit 0
+}
+
+stream_logs() {
+  trap shutdown INT TERM
+  # --no-log-prefix is NOT used: the service-name prefix is what makes interleaved
+  # logs from web/worker/vite/postgres readable.
+  compose logs -f --tail=20 || true
+}
+
+up() {
+  require_docker
+  require_env_file
+  check_env_values
+  stage_proxy_ca
+
+  build_images "$@"
+  start_database
+  prepare_database
+  start_services
+  print_banner
+  stream_logs
+}
+
+# --- Command dispatch ---------------------------------------------------
+
+case "${1:-up}" in
+  up|"")
+    up
+    ;;
+
+  rebuild)
+    require_docker
+    require_env_file
+    stage_proxy_ca
+    build_images --no-cache
+    start_database
+    prepare_database
+    start_services
+    print_banner
+    stream_logs
+    ;;
+
+  down)
+    require_docker
+    step "Stopping the stack"
+    compose down --remove-orphans
+    ok "stopped"
+    ;;
+
+  logs)
+    require_docker
+    shift
+    compose logs -f --tail=100 "$@"
+    ;;
+
+  ps|status)
+    require_docker
+    compose ps
+    ;;
+
+  restart)
+    require_docker
+    shift
+    compose restart "${@:-${APP_SERVICES[@]}}"
+    ;;
+
+  shell|sh|bash)
+    require_docker
+    service="${2:-web}"
+    # exec into the running container when possible; fall back to a one-off container.
+    if [ -n "$(compose ps -q "$service" 2>/dev/null)" ]; then
+      compose exec "$service" /bin/bash
+    else
+      compose run --rm "$service" /bin/bash
+    fi
+    ;;
+
+  console|c)
+    require_docker
+    compose exec web bin/rails console 2>/dev/null \
+      || compose run --rm web bin/rails console
+    ;;
+
+  dbconsole|psql)
+    require_docker
+    # shellcheck disable=SC2046
+    compose exec postgres psql \
+      -U "$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2-)" \
+      -d "$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2-)"
+    ;;
+
+  migrate)
+    require_docker
+    require_env_file
+    start_database
+    step "Running migrations"
+    compose run --rm --no-deps web bin/rails db:migrate
+    ok "migrated"
+    ;;
+
+  prepare)
+    require_docker
+    require_env_file
+    start_database
+    prepare_database
+    ;;
+
+  seed)
+    require_docker
+    require_env_file
+    start_database
+    step "Seeding development data"
+    info "idempotent — safe to re-run"
+    compose run --rm --no-deps web bin/rails db:seed
+    ;;
+
+  test)
+    require_docker
+    require_env_file
+    start_database
+    step "Running tests"
+    compose run --rm -e RAILS_ENV=test web bash -c 'bin/rails db:prepare && bin/rails test'
+    ;;
+
+  typecheck)
+    require_docker
+    step "Type-checking"
+    compose run --rm --no-deps vite npm run typecheck
+    ;;
+
+  run)
+    require_docker
+    shift
+    [ $# -eq 0 ] && die "Nothing to run." "Usage:  ./dev run bin/rails routes"
+    compose run --rm --no-deps web "$@"
+    ;;
+
+  help|-h|--help)
+    sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+
+  *)
+    die "Unknown command: $1" "Run  ./dev help  for the available commands."
+    ;;
+esac

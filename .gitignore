@@ -171,3 +171,7 @@ postgres-data/
 # Ignore key files for decrypting credentials and more.
 /config/*.key
 
+
+# Corporate proxy CAs are machine-specific; never commit them.
+/docker/certs/*.crt
+!/docker/certs/.keep

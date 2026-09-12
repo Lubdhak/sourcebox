@@ -1,14 +1,29 @@
 Rails.application.routes.draw do
-  # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
+  # --- Authentication ---------------------------------------------------
+  # Generates the OAuth request phase at /users/auth/google_oauth2 and the callback at
+  # /users/auth/google_oauth2/callback. The provider segment is the OmniAuth strategy
+  # name, which is `google_oauth2` -- not `google`.
+  devise_for :users,
+             controllers: { omniauth_callbacks: "users/omniauth_callbacks" },
+             skip: [ :registrations ]
 
-  # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
-  # Can be used by load balancers and uptime monitors to verify that the app is live.
-  get "up" => "rails/health#show", as: :rails_health_check
+  devise_scope :user do
+    get "/login", to: "sessions#new", as: :login
+  end
 
-  # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
-  # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
-  # get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
+  # --- Inertia pages ----------------------------------------------------
+  # Server-driven navigation. These render components, not JSON.
+  resource :dashboard, only: [ :show ], controller: "dashboards"
 
-  # Defines the root path route ("/")
-  # root "posts#index"
+  # --- GraphQL ----------------------------------------------------------
+  # One endpoint for all client-state reads and writes. No REST duplication.
+  post "/graphql", to: "graphql#execute"
+
+  # --- Infrastructure ---------------------------------------------------
+  # /health -> the process is alive (no dependencies touched)
+  # /ready  -> dependencies are reachable (returns 503 when they are not)
+  get "/health", to: "health#show"
+  get "/ready",  to: "health#ready"
+
+  root to: redirect("/dashboard")
 end

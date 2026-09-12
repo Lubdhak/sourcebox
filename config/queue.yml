@@ -1,0 +1,35 @@
+# Solid Queue: PostgreSQL-backed, zero Redis.
+#
+# `processes` scales vertically inside one container; run more `worker` containers to
+# scale horizontally. Scale workers on queue depth
+# (SolidQueue::ReadyExecution.count), not on CPU.
+default: &default
+  dispatchers:
+    - polling_interval: 1
+      batch_size: 500
+      # Releases jobs whose concurrency locks have expired.
+      concurrency_maintenance_interval: 600
+
+  workers:
+    # Latency-sensitive work (audit trail) gets its own process so a flood of
+    # analytics jobs can never delay it.
+    - queues: "critical"
+      threads: 5
+      processes: <%= ENV.fetch("JOB_CONCURRENCY_CRITICAL", 1) %>
+      polling_interval: 0.5
+
+    # Everything else. `default` is listed first so it is drained ahead of
+    # analytics when both have work.
+    - queues: [ default, analytics ]
+      threads: 3
+      processes: <%= ENV.fetch("JOB_CONCURRENCY", 1) %>
+      polling_interval: 1
+
+development:
+  <<: *default
+
+test:
+  <<: *default
+
+production:
+  <<: *default

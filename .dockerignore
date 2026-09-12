@@ -1,0 +1,59 @@
+# Keep the build context small and secrets out of it entirely.
+# Anything listed here can never end up in an image layer.
+
+# --- Secrets -----------------------------------------------------------
+.env
+.env.*
+!.env.example
+config/master.key
+config/credentials/*.key
+*.pem
+*.p12
+*.pfx
+# Exception: the opt-in corporate proxy CA must reach the build.
+!docker/certs/*.crt
+
+# --- VCS / tooling -----------------------------------------------------
+.git
+.gitignore
+.github
+.rubocop.yml
+
+# --- Dependencies installed inside the image ---------------------------
+node_modules
+vendor/bundle
+.bundle
+
+# --- Build output rebuilt inside the image -----------------------------
+public/vite
+public/vite-dev
+public/vite-test
+public/assets
+public/packs
+.vite
+dist
+
+# --- Runtime state -----------------------------------------------------
+log/*
+tmp/*
+!tmp/.keep
+storage
+*.log
+*.sqlite3
+*.sqlite3-*
+
+# --- Tests and docs ----------------------------------------------------
+test
+spec
+coverage
+README.md
+SETUP.md
+task.md
+
+# --- Editor / OS -------------------------------------------------------
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+*.tsbuildinfo

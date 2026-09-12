@@ -1,0 +1,120 @@
+name: sourcebox
+
+# Local development topology:
+#
+#   Browser
+#      |
+#      +--> web (Rails: Inertia pages, POST /graphql, /health, /ready)
+#      |      |
+#      |      +--> postgres (primary + queue databases)
+#      |
+#      +--> vite (dev server: HMR + module transforms)
+#
+#   worker (Solid Queue supervisor) --> postgres
+#
+# `web` and `worker` run the SAME image with different commands, which is what
+# guarantees the worker executes identical code and gems to the web tier.
+
+x-app: &app
+  build:
+    context: .
+    # Development target keeps the toolchain so Rails can reload code and Vite can
+    # run its dev server. The production target is built separately by
+    # docker-compose.prod.yml.
+    target: development
+  image: sourcebox-app:dev
+  env_file: .env
+  environment:
+    # Overrides .env: inside the compose network the database is reachable by
+    # service name, not 127.0.0.1.
+    POSTGRES_HOST: postgres
+    # Where the Rails dev-server proxy looks for Vite. The browser reaches Vite on
+    # localhost:3036 via the published port; Rails reaches it by service name.
+    VITE_RUBY_HOST: vite
+  volumes:
+    # Source is mounted so edits are picked up without a rebuild.
+    - .:/rails
+    # These must NOT be shadowed by the bind mount above: node_modules is installed
+    # into the image, and writing it through a macOS bind mount is pathologically
+    # slow. Named volumes keep both inside Docker's own filesystem.
+    - node_modules:/rails/node_modules
+    - vite_build:/rails/public/vite
+    - vite_dev_build:/rails/public/vite-dev
+  depends_on:
+    postgres:
+      # `service_started` is not enough: Postgres accepts connections only after
+      # initdb finishes, so without this the first `up` races and the app exits.
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:18-trixie
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sourcebox}
+      POSTGRES_USER: ${POSTGRES_USER:-sourcebox_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sourcebox_dev}
+    ports:
+      # Bound to loopback only, so the database is reachable from a GUI client on
+      # this machine but never exposed to the local network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18's official image sets PGDATA=/var/lib/postgresql/18/docker and
+      # declares its volume at /var/lib/postgresql. Mounting the pre-18 path
+      # (/var/lib/postgresql/data) silently fails to persist anything.
+      - postgres_data:/var/lib/postgresql
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sourcebox_dev} -d ${POSTGRES_DB:-sourcebox}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  web:
+    <<: *app
+    command: bin/rails server -b 0.0.0.0 -p 3000
+    ports:
+      - "3000:3000"
+    healthcheck:
+      # Hits /health, not /ready: this check answers "is the process alive". Making
+      # it depend on the database would let a brief database blip kill otherwise
+      # healthy web containers.
+      test: [ "CMD-SHELL", "ruby -e \"require 'net/http'; exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/health')).code == '200' ? 0 : 1)\"" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: bin/jobs
+    # No ports: a worker serves no traffic.
+    healthcheck:
+      # Validates the Solid Queue configuration and its database connection without
+      # starting a supervisor.
+      test: [ "CMD-SHELL", "bin/rails solid_queue:check" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  vite:
+    <<: *app
+    command: bin/vite dev
+    environment:
+      # The dev server must bind 0.0.0.0, not `localhost` (unreachable from the host)
+      # and not the `vite` service name that the web container uses to proxy to it.
+      VITE_RUBY_HOST: 0.0.0.0
+      POSTGRES_HOST: postgres
+    ports:
+      - "3036:3036"
+    # The dev server needs no database; depending on Postgres would only slow startup.
+    # An explicit key overrides the value merged in from the *app anchor.
+    depends_on: []
+
+volumes:
+  postgres_data:
+  node_modules:
+  vite_build:
+  vite_dev_build:

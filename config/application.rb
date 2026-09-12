@@ -1,42 +1,59 @@
 require_relative "boot"
 
 require "rails"
-# Pick the frameworks you want:
+# Only the frameworks this application actually uses. Action Cable, Active Storage,
+# Action Text and Action Mailbox are deliberately absent: no WebSockets, no uploads
+# (avatars are remote URLs), no rich text, no inbound mail.
 require "active_model/railtie"
 require "active_job/railtie"
 require "active_record/railtie"
-# require "active_storage/engine"
 require "action_controller/railtie"
 require "action_mailer/railtie"
-# require "action_mailbox/engine"
-# require "action_text/engine"
 require "action_view/railtie"
-# require "action_cable/engine"
 require "rails/test_unit/railtie"
 
 # Require the gems listed in Gemfile, including any gems
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
-module App
+module Sourcebox
   class Application < Rails::Application
-    # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.1
 
-    # Please, add to the `ignore` list any other `lib` subdirectories that do
-    # not contain `.rb` files, or that should not be reloaded or eager loaded.
-    # Common ones are `templates`, `generators`, or `middleware`, for example.
     config.autoload_lib(ignore: %w[assets tasks])
 
-    # Configuration for the application, engines, and railties goes here.
-    #
-    # These settings can be overridden in specific environments using the files
-    # in config/environments, which are processed later.
-    #
-    # config.time_zone = "Central Time (US & Canada)"
-    # config.eager_load_paths << Rails.root.join("extras")
+    # Everything is UTC internally; formatting for a user's timezone is a view concern.
+    config.time_zone = "UTC"
+    config.active_record.default_timezone = :utc
 
-    # Don't generate system test files.
+    # --- Background jobs ------------------------------------------------
+    #
+    # PostgreSQL-backed, zero Redis. `connects_to` points Solid Queue at the separate
+    # `queue` database defined in config/database.yml, keeping high-churn job traffic out
+    # of the primary's autovacuum, WAL and backups.
+    config.active_job.queue_adapter = :solid_queue
+    config.solid_queue.connects_to = { database: { writing: :queue } }
+
+    # Surface job errors through Rails' error reporter so one subscriber sees application
+    # and background failures alike.
+    config.solid_queue.on_thread_error = ->(exception) do
+      Rails.error.report(exception, handled: false, source: "solid_queue")
+    end
+
+    # --- Generators -----------------------------------------------------
     config.generators.system_tests = nil
+    config.generators do |g|
+      g.helper false
+      g.assets false
+    end
+
+    # --- Logging --------------------------------------------------------
+    #
+    # Parameters scrubbed from logs everywhere Rails logs them. Rails.event payloads are
+    # scrubbed separately and more aggressively by Logging::Redactor.
+    config.filter_parameters += %i[
+      password password_confirmation secret token _key crypt salt certificate otp ssn
+      access_token refresh_token id_token client_secret authenticity_token
+    ]
   end
 end

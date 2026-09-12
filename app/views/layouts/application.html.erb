@@ -1,28 +1,39 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" class="h-full">
   <head>
-    <title><%= content_for(:title) || "App" %></title>
+    <title><%= content_for(:title) || "Sourcebox" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="App">
-    <meta name="mobile-web-app-capable" content="yes">
+
+    <%# Required. The GraphQL client and the Google login form both read this token. %>
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
 
     <%= yield :head %>
-
-    <%# Enable PWA manifest for installable apps (make sure to enable in config/routes.rb too!) %>
-    <%#= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
+    <%= inertia_headers %>
 
     <link rel="icon" href="/icon.png" type="image/png">
-    <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.png">
 
-    <%# Includes all stylesheet files in app/assets/stylesheets %>
-    <%= stylesheet_link_tag "application" %>
+    <%#
+      Ordering matters.
+
+      vite_react_refresh_tag must come FIRST: it installs React Refresh's global hook,
+      and any component module evaluated before that hook exists will not be
+      hot-swappable (and React will warn about it). In production the helper renders
+      nothing at all.
+
+      Development: both helpers point at the Vite dev server (the `vite` container),
+      which serves unbundled ES modules and opens an HMR websocket to the browser.
+      Production: vite_javascript_tag reads public/vite/.vite/manifest.json and emits
+      hashed, immutable asset URLs built at image build time. No Node runs in production.
+    %>
+    <%= vite_react_refresh_tag %>
+    <%= vite_client_tag %>
+    <%= vite_javascript_tag "application" %>
   </head>
 
-  <body>
+  <body class="h-full bg-slate-50 text-slate-900 antialiased">
     <%= yield %>
   </body>
 </html>
