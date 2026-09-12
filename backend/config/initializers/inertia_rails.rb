@@ -1,6 +1,20 @@
 # frozen_string_literal: true
 
 InertiaRails.configure do |config|
+  # Required, not cosmetic. The installed @inertiajs/core resolves the initial page with
+  #
+  #     document.querySelector('script[data-page="app"][type="application/json"]')
+  #
+  # and has no fallback path. The gem still defaults to the older contract, a
+  # `<div id="app" data-page="{...json...}">`, so leaving this off means the client finds
+  # nothing, `getInitialPageFromDOM` returns null, and `initialPage.component` throws
+  # inside createInertiaApp — which surfaces as a completely blank page with a 200 status
+  # and no server-side error.
+  #
+  # The gem also copies the CSP nonce onto this script tag, so it works under a policy
+  # without 'unsafe-inline'.
+  config.use_script_element_for_initial_page = true
+
   # Opt in now to what becomes the default in InertiaRails 4.0, rather than carrying a
   # deprecation warning on every response. Guarantees `errors` is always present in the page
   # props, so the frontend can read `errors.field` without null-checking the container first.

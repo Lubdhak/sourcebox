@@ -17,7 +17,10 @@ end
 # `user.created` and enqueues NotificationJob and AnalyticsEventJob. That is left in
 # place on purpose: it gives a fresh checkout a few jobs on the queue, so `./dev up` shows
 # the worker doing real work instead of idling.
-DEMO_PASSWORD = "sourcebox-dev-password"
+# Short and memorable on purpose, because its only job is to be typed by hand during a
+# demo. It is far below Devise's configured minimum (config.password_length), which is why
+# the save below skips validation — see the comment there.
+DEMO_PASSWORD = "saas"
 
 SEED_USERS = [
   {
@@ -53,6 +56,23 @@ SEED_USERS = [
     },
   },
   {
+    # The account to reach for when demoing. Password sign-in, so it works without Google
+    # OAuth credentials configured.
+    email: "lubi@gmail.com",
+    name: "Lubi",
+    provider: nil,
+    uid: nil,
+    avatar_url: nil,
+    ui_state: {
+      "theme" => "dark",
+      "layout" => "grid",
+      "visibleWidgets" => %w[revenue signups latency],
+      "widgetSettings" => {
+        "revenue" => { "currency" => "USD", "range" => "7d" },
+      },
+    },
+  },
+  {
     # No provider/uid: a password-signup account, so the partial unique index on
     # (provider, uid) is exercised alongside the OAuth rows.
     email: "alan@sourcebox.dev",
@@ -81,8 +101,28 @@ SEED_USERS.each do |attrs|
     uid: attrs[:uid],
     avatar_url: attrs[:avatar_url]
   )
-  user.password = DEMO_PASSWORD if user.new_record?
-  user.save!
+  # Assigned whenever it does not already match, rather than only on create. A re-run on an
+  # unchanged database stays a no-op, but changing DEMO_PASSWORD converges the accounts that
+  # already exist — otherwise the banner this file prints would promise a password that no
+  # seeded account actually accepts.
+  unless user.encrypted_password.present? && user.valid_password?(DEMO_PASSWORD)
+    user.password = DEMO_PASSWORD
+  end
+
+  # DEMO_PASSWORD is deliberately shorter than Devise's minimum (config.password_length),
+  # so validation would reject it. Skipping validation is the narrow fix; the alternative
+  # is lowering that minimum, which would weaken the password policy for real accounts in
+  # every environment in order to make a development fixture convenient.
+  #
+  # Everything unrelated to the password is still validated, because the point of skipping
+  # is to allow a short password — not to let a genuine mistake in the seed data through.
+  user.validate
+  blocking = user.errors.reject { |error| error.attribute == :password }
+  if blocking.any?
+    raise "Seed user #{attrs.fetch(:email)} is invalid: #{blocking.map(&:full_message).join(', ')}"
+  end
+
+  user.save!(validate: false)
 
   dashboard = user.dashboards.order(:created_at).first || user.dashboards.new
   dashboard.ui_state = ui_state
