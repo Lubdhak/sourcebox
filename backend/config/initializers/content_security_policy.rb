@@ -70,9 +70,15 @@ Rails.application.configure do
     policy.form_action :self
   end
 
-  # A nonce for the one inline script we legitimately emit: vite_react_refresh_tag passes
-  # `nonce: true`, so React Refresh works in development without :unsafe_inline.
-  config.content_security_policy_nonce_generator = ->(request) { request.session.id.to_s }
+  # A nonce for the one inline script we legitimately emit: the React Refresh preamble in
+  # FrontendAssetsHelper passes `nonce: true`, so hot reloading works without relaxing
+  # script-src to :unsafe_inline.
+  #
+  # Random per request, NOT derived from the session id. The common `request.session.id`
+  # recipe silently yields an empty nonce on any page reached before a session exists --
+  # the login page included -- which emits `'nonce-'` in the header and then blocks the
+  # very script it was meant to allow the moment the policy is enforced.
+  config.content_security_policy_nonce_generator = ->(_request) { SecureRandom.base64(16) }
   config.content_security_policy_nonce_directives = %w[script-src]
 
   config.content_security_policy_report_only = !ENV["CSP_ENFORCE"].present?

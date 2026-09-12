@@ -13,10 +13,25 @@ module Logging
   # ActiveSupport::EventReporter builds:
   #   { name:, payload:, tags:, context:, timestamp:, source_location: }
   class JsonSubscriber
-    def initialize(io: $stdout, include_source: false)
+    def initialize(io: $stdout, include_source: false, redactor: Logging::Redactor)
       @io = io
       @io.sync = true
       @include_source = include_source
+
+      # Resolved once, here, and held as a reference rather than named as a constant in
+      # `build`.
+      #
+      # This is not a style preference. Events are emitted from arbitrary threads --
+      # including Solid Queue's polling threads, which sit outside Rails' load interlock.
+      # Autoloading a constant from such a thread does not block and wait; Zeitwerk raises
+      # `NameError: uninitialized constant Logging::JsonSubscriber::Redactor`. Because this
+      # subscriber swallows its own exceptions by design, the result was silent: every log
+      # line from the worker was replaced by a `logging.failure` marker, so jobs ran
+      # correctly while appearing to do nothing at all.
+      #
+      # The constant is resolved during boot instead, which is single-threaded and
+      # autoload-safe, so the emit path performs no constant lookup.
+      @redactor = redactor
     end
 
     def emit(event)
@@ -50,7 +65,7 @@ module Logging
       }
 
       base
-        .merge(Redactor.call(event[:context].presence || {}))
+        .merge(@redactor.call(event[:context].presence || {}))
         .merge(payload_for(event))
         .merge(tags_for(event))
         .merge(source_for(event))
@@ -64,8 +79,8 @@ module Logging
 
       case payload
       when nil  then {}
-      when Hash then Redactor.call(payload)
-      else { payload: Redactor.call(payload.respond_to?(:to_h) ? payload.to_h : payload) }
+      when Hash then @redactor.call(payload)
+      else { payload: @redactor.call(payload.respond_to?(:to_h) ? payload.to_h : payload) }
       end
     end
 
@@ -73,7 +88,7 @@ module Logging
       tags = event[:tags]
       return {} if tags.blank?
 
-      { tags: Redactor.call(tags) }
+      { tags: @redactor.call(tags) }
     end
 
     def source_for(event)

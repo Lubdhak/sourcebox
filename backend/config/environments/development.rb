@@ -6,6 +6,25 @@ Rails.application.configure do
   # Make code changes take effect immediately without server restart.
   config.enable_reloading = true
 
+  # Poll for file changes rather than subscribing to filesystem events.
+  #
+  # Set explicitly, and deliberately NOT ActiveSupport::EventedFileUpdateChecker. The
+  # evented checker uses the `listen` gem, which relies on inotify on Linux — and inotify
+  # events do not propagate from the macOS or Windows host into a Linux container through
+  # Docker Desktop's file sharing. With the evented checker the app silently stops
+  # reloading: edits are saved, the browser reloads, and the old code still runs.
+  #
+  # FileUpdateChecker stats the watched files once per request instead. That costs a few
+  # milliseconds per request and always works, which is the right trade in development.
+  config.file_watcher = ActiveSupport::FileUpdateChecker
+
+  # Rebuilt on every reload so an edited component's hashed filename is picked up without
+  # restarting the server. In dev-server mode the manifest is not used at all, but this
+  # keeps behaviour identical when running development against a built frontend.
+  config.to_prepare do
+    FrontendAssets::Manifest.reset!
+  end
+
   # Do not eager load code on boot.
   config.eager_load = false
 
