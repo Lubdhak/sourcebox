@@ -3,37 +3,33 @@
   <head>
     <title><%= content_for(:title) || "Sourcebox" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="apple-mobile-web-app-capable" content="yes">
 
-    <%# Required. The GraphQL client and the Google login form both read this token. %>
+    <%# Required. Both the GraphQL client and the Google login form read this token. %>
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
 
     <%= yield :head %>
     <%= inertia_headers %>
 
-    <link rel="icon" href="/icon.png" type="image/png">
-    <link rel="apple-touch-icon" href="/icon.png">
+    <%#
+      Preconnect to the asset origin.
+
+      In production the frontend is a separate container on a different origin, so the
+      browser would otherwise pay DNS + TCP + TLS before it can even start downloading the
+      JS. This overlaps that handshake with HTML parsing.
+    %>
+    <% if (asset_origin = FrontendAssets::Manifest.instance.asset_host).present? %>
+      <link rel="preconnect" href="<%= asset_origin %>" crossorigin>
+    <% end %>
 
     <%#
-      Ordering matters.
-
-      vite_react_refresh_tag must come FIRST: it installs React Refresh's global hook,
-      and any component module evaluated before that hook exists will not be
-      hot-swappable (and React will warn about it). In production the helper renders
-      nothing at all.
-
-      Development: both helpers point at the Vite dev server (the `vite` container),
-      which serves unbundled ES modules and opens an HMR websocket to the browser.
-      Production: vite_javascript_tag reads public/vite/.vite/manifest.json and emits
-      hashed, immutable asset URLs built at image build time. No Node runs in production.
+      All frontend tags come from the Vite manifest published by the frontend project.
+      Rails never builds or bundles anything: see FrontendAssets::Manifest.
     %>
-    <%= vite_react_refresh_tag %>
-    <%= vite_client_tag %>
-    <%= vite_javascript_tag "application" %>
+    <%= frontend_assets_tags %>
   </head>
 
-  <body class="h-full bg-slate-50 text-slate-900 antialiased">
+  <body class="h-full bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
     <%= yield %>
   </body>
 </html>

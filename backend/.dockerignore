@@ -1,59 +1,40 @@
-# Keep the build context small and secrets out of it entirely.
-# Anything listed here can never end up in an image layer.
+# Keep the build context small and free of anything machine-specific.
 
-# --- Secrets -----------------------------------------------------------
+# --- Secrets: never in an image layer -----------------------------------
 .env
 .env.*
 !.env.example
 config/master.key
 config/credentials/*.key
+
 *.pem
 *.p12
 *.pfx
-# Exception: the opt-in corporate proxy CA must reach the build.
+# Exception: the opt-in corporate proxy CA the Dockerfile installs. A public certificate,
+# not a secret.
 !docker/certs/*.crt
 
-# --- VCS / tooling -----------------------------------------------------
+# --- Version control ----------------------------------------------------
 .git
 .gitignore
-.github
-.rubocop.yml
 
-# --- Dependencies installed inside the image ---------------------------
-node_modules
+# --- Generated / transient ---------------------------------------------
+log/*
+!log/.keep
+tmp/*
+!tmp/.keep
+storage/*
+!storage/.keep
+
 vendor/bundle
 .bundle
 
-# --- Build output rebuilt inside the image -----------------------------
-public/vite
-public/vite-dev
-public/vite-test
-public/assets
-public/packs
-.vite
-dist
-
-# --- Runtime state -----------------------------------------------------
-log/*
-tmp/*
-!tmp/.keep
-storage
-*.log
-*.sqlite3
-*.sqlite3-*
-
-# --- Tests and docs ----------------------------------------------------
+# --- Not needed at runtime ---------------------------------------------
 test
 spec
-coverage
+.rubocop.yml
 README.md
-SETUP.md
-task.md
 
-# --- Editor / OS -------------------------------------------------------
 .DS_Store
 .idea
 .vscode
-*.swp
-*.swo
-*.tsbuildinfo

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Container entrypoint for web, worker and vite.
+# Container entrypoint for the backend and worker containers.
 #
 # Deliberately does NOT run migrations. Two containers starting at once would race on
 # the same schema, and an entrypoint that migrates makes every container restart a

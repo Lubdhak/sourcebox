@@ -1,120 +1,152 @@
+# Local development stack. Started with `./dev` -- see that script for orchestration.
+#
+# Four containers, one per concern, each built from its own directory:
+#
+#   postgres   database/    PostgreSQL 18
+#   backend    backend/     Rails: HTML shell, Inertia props, GraphQL
+#   worker     backend/     Solid Queue (same image as backend, different command)
+#   frontend   frontend/    Vite dev server with HMR
+#
+# backend/ and frontend/ have separate build contexts and separate Dockerfiles. Neither
+# references anything outside its own directory, so either can be lifted into its own
+# repository without edits. This file is the only place that knows they belong together.
+#
+# This is the DEVELOPMENT composition: source is bind-mounted, code reloads, and Vite runs
+# a dev server. For production use docker-compose.prod.yml.
+
 name: sourcebox
 
-# Local development topology:
-#
-#   Browser
-#      |
-#      +--> web (Rails: Inertia pages, POST /graphql, /health, /ready)
-#      |      |
-#      |      +--> postgres (primary + queue databases)
-#      |
-#      +--> vite (dev server: HMR + module transforms)
-#
-#   worker (Solid Queue supervisor) --> postgres
-#
-# `web` and `worker` run the SAME image with different commands, which is what
-# guarantees the worker executes identical code and gems to the web tier.
-
-x-app: &app
+# Backend and worker are the same image and the same environment; only the command differs.
+# Anchored so a change cannot be applied to one and forgotten on the other, which would put
+# mismatched code in the request path and the queue.
+x-backend: &backend
   build:
-    context: .
-    # Development target keeps the toolchain so Rails can reload code and Vite can
-    # run its dev server. The production target is built separately by
-    # docker-compose.prod.yml.
+    context: ./backend
     target: development
-  image: sourcebox-app:dev
+  image: sourcebox-backend:dev
   env_file: .env
   environment:
-    # Overrides .env: inside the compose network the database is reachable by
-    # service name, not 127.0.0.1.
+    # Inside the compose network the database is reached by service name, overriding
+    # whatever POSTGRES_HOST says in .env (which is for host-side tools).
     POSTGRES_HOST: postgres
-    # Where the Rails dev-server proxy looks for Vite. The browser reaches Vite on
-    # localhost:3036 via the published port; Rails reaches it by service name.
-    VITE_RUBY_HOST: vite
+
+    # Where the BROWSER should load JS modules from -- not where this container can reach
+    # Vite. Rails renders these URLs into the HTML for the browser to fetch, so it must be
+    # a host-side address. `http://frontend:5173` would resolve only inside Docker and fail
+    # in the browser.
+    #
+    # Setting this also puts FrontendAssets::Manifest into dev-server mode, so it never
+    # looks for a build manifest.
+    VITE_DEV_SERVER_URL: http://localhost:${FRONTEND_PORT:-5173}
   volumes:
     # Source is mounted so edits are picked up without a rebuild.
-    - .:/rails
-    # These must NOT be shadowed by the bind mount above: node_modules is installed
-    # into the image, and writing it through a macOS bind mount is pathologically
-    # slow. Named volumes keep both inside Docker's own filesystem.
-    - node_modules:/rails/node_modules
-    - vite_build:/rails/public/vite
-    - vite_dev_build:/rails/public/vite-dev
+    - ./backend:/rails
+    # Anonymous volumes keep container-generated files off the host, where they would
+    # collide with host-side tooling and slow the mount down.
+    - backend_tmp:/rails/tmp
+    - backend_log:/rails/log
   depends_on:
     postgres:
-      # `service_started` is not enough: Postgres accepts connections only after
-      # initdb finishes, so without this the first `up` races and the app exits.
       condition: service_healthy
 
 services:
+  # --- DB ---------------------------------------------------------------
   postgres:
     image: postgres:18-trixie
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sourcebox}
       POSTGRES_USER: ${POSTGRES_USER:-sourcebox_dev}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sourcebox_dev}
-    ports:
-      # Bound to loopback only, so the database is reachable from a GUI client on
-      # this machine but never exposed to the local network.
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      # PostgreSQL 18's official image sets PGDATA=/var/lib/postgresql/18/docker and
-      # declares its volume at /var/lib/postgresql. Mounting the pre-18 path
-      # (/var/lib/postgresql/data) silently fails to persist anything.
+      # PostgreSQL 18 moved PGDATA to /var/lib/postgresql/18/docker, and the image declares
+      # its volume at /var/lib/postgresql. Using the pre-18 /var/lib/postgresql/data here
+      # would silently persist nothing -- the database would look fine until the first
+      # restart.
       - postgres_data:/var/lib/postgresql
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+      # Creates the second (queue) database and enables pg_stat_statements. Runs only on
+      # first initialisation of an empty data directory.
+      - ./database/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    ports:
+      # Bound to loopback, not 0.0.0.0: a database with a development password must not be
+      # reachable from the local network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
+      # `./dev` waits on this before touching the database, which is what makes a single
+      # command reliable on a cold start.
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sourcebox_dev} -d ${POSTGRES_DB:-sourcebox}" ]
       interval: 5s
       timeout: 5s
-      retries: 12
-      start_period: 15s
-    restart: unless-stopped
+      retries: 10
+      start_period: 10s
 
-  web:
-    <<: *app
+  # --- BE ---------------------------------------------------------------
+  backend:
+    <<: *backend
     command: bin/rails server -b 0.0.0.0 -p 3000
     ports:
-      - "3000:3000"
+      - "${BACKEND_PORT:-3000}:3000"
     healthcheck:
-      # Hits /health, not /ready: this check answers "is the process alive". Making
-      # it depend on the database would let a brief database blip kill otherwise
-      # healthy web containers.
-      test: [ "CMD-SHELL", "ruby -e \"require 'net/http'; exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/health')).code == '200' ? 0 : 1)\"" ]
+      # /health, not /ready: this is liveness. /ready fails when the database is briefly
+      # unavailable, which should remove an instance from a load balancer, not mark the
+      # container broken.
+      test: [ "CMD", "ruby", "-e", "require 'net/http'; exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/health')).code == '200' ? 0 : 1)" ]
       interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
-  worker:
-    <<: *app
-    command: bin/jobs
-    # No ports: a worker serves no traffic.
-    healthcheck:
-      # Validates the Solid Queue configuration and its database connection without
-      # starting a supervisor.
-      test: [ "CMD-SHELL", "bin/rails solid_queue:check" ]
-      interval: 30s
       timeout: 10s
+      start_period: 40s
       retries: 3
-      start_period: 30s
 
-  vite:
-    <<: *app
-    command: bin/vite dev
+  # --- Worker -----------------------------------------------------------
+  # A separate container, not a thread inside Puma. In-process job execution competes with
+  # request handling for the GVL and dies with the web process, and it cannot be scaled or
+  # restarted independently.
+  worker:
+    <<: *backend
+    command: bin/jobs
+    # No ports. A worker reachable over HTTP is a misconfiguration.
+    healthcheck:
+      test: [ "CMD", "bin/rails", "solid_queue:check" ]
+      interval: 30s
+      timeout: 15s
+      start_period: 40s
+      retries: 3
+
+  # --- FE ---------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      target: development
+    image: sourcebox-frontend:dev
+    command: npm run dev
     environment:
-      # The dev server must bind 0.0.0.0, not `localhost` (unreachable from the host)
-      # and not the `vite` service name that the web container uses to proxy to it.
-      VITE_RUBY_HOST: 0.0.0.0
-      POSTGRES_HOST: postgres
+      # Absolute URLs Vite emits for assets referenced from inside CSS and JS. Host-side
+      # address, because the browser is what fetches them.
+      VITE_DEV_ORIGIN: http://localhost:${FRONTEND_PORT:-5173}
+      # Where the browser opens the HMR websocket.
+      VITE_HMR_HOST: localhost
+      # Docker Desktop on macOS and Windows does not deliver inotify events into Linux
+      # containers reliably, so without polling file changes are simply missed.
+      VITE_USE_POLLING: "true"
+    volumes:
+      - ./frontend:/app
+      # A named volume, NOT a bind mount. node_modules is tens of thousands of tiny files;
+      # served through virtiofs on macOS it turns a 2-second Vite boot into minutes. Docker
+      # seeds this from the image on first use.
+      - frontend_node_modules:/app/node_modules
     ports:
-      - "3036:3036"
-    # The dev server needs no database; depending on Postgres would only slow startup.
-    # An explicit key overrides the value merged in from the *app anchor.
-    depends_on: []
+      - "${FRONTEND_PORT:-5173}:5173"
+    # No depends_on: the dev server compiles on demand and needs neither Rails nor the
+    # database. Keeping it independent means a backend restart never interrupts HMR.
+    healthcheck:
+      # /@vite/client always exists while the dev server is up; / would 404 because this
+      # project has no index.html (Rails renders the HTML).
+      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:5173/@vite/client').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" ]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
 
 volumes:
   postgres_data:
-  node_modules:
-  vite_build:
-  vite_dev_build:
+  frontend_node_modules:
+  backend_tmp:
+  backend_log:

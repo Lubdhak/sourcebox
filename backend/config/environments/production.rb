@@ -20,23 +20,20 @@ Rails.application.configure do
 
   # --- Frontend served from its own container -------------------------
   #
-  # When ASSET_HOST is set, every Vite asset URL this app renders is rewritten to point
-  # at it (vite_javascript_tag goes through Rails' path_to_asset, so asset_host applies).
-  # That is what lets the frontend image run, scale and deploy as a separate service, or
-  # be replaced by a CDN, with no change here.
+  # ASSET_HOST is deliberately NOT wired into config.asset_host here.
   #
-  # Unset is a valid configuration: the Rails image also contains public/vite, so a
-  # single-container deployment works out of the box. Setting it opts into the split.
+  # This app ships no JavaScript or CSS of its own: every frontend URL is resolved by
+  # FrontendAssets::Manifest, which reads ASSET_HOST itself and joins it onto the paths in
+  # the frontend's manifest. Setting Rails' asset_host as well would prepend the host a
+  # second time.
   #
   # Deploy order matters, in one direction only: roll out the frontend image BEFORE the
-  # backend. Asset filenames are content-hashed, so the new backend's HTML references
-  # files that must already exist on the asset host, while the old backend's HTML keeps
-  # working because its files are still there. Reversing the order serves HTML pointing
-  # at assets that 404.
-  config.asset_host = ENV["ASSET_HOST"].presence
-
-  # Rails still serves public/ itself when no asset host is configured. With ASSET_HOST
-  # set this becomes a harmless fallback that nothing requests.
+  # backend. Asset filenames are content-hashed, so the new backend's HTML references files
+  # that must already exist on the asset host, while the old backend's HTML keeps working
+  # because its files are still there. Reversing the order serves HTML pointing at assets
+  # that 404.
+  #
+  # public/ now holds only static extras such as favicons and robots.txt.
   config.public_file_server.enabled = true
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.

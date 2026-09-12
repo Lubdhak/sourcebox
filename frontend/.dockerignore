@@ -1,0 +1,33 @@
+# Keep the build context small and free of anything machine-specific.
+
+node_modules
+dist
+.vite
+
+# Never ship secrets or environment files into an image layer.
+.env
+.env.*
+!.env.example
+
+*.pem
+*.p12
+*.pfx
+# Exception: the opt-in corporate proxy CA the Dockerfile installs. A public certificate,
+# not a secret.
+!docker/certs/*.crt
+
+.git
+.gitignore
+
+npm-debug.log*
+.npm
+
+.DS_Store
+.idea
+.vscode
+
+# Tests and docs do not belong in a runtime image.
+**/*.test.ts
+**/*.test.tsx
+**/__tests__
+README.md

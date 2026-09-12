@@ -106,7 +106,6 @@ GEM
       responders
       warden (~> 1.2.3)
     drb (2.2.3)
-    dry-cli (1.4.1)
     erb (6.0.7)
     erubi (1.13.1)
     et-orbi (1.4.2)
@@ -162,7 +161,6 @@ GEM
     msgpack (1.8.5)
     multi_xml (0.9.1)
       bigdecimal (>= 3.1, < 5)
-    mutex_m (0.3.0)
     net-http (0.9.1)
       uri (>= 0.11.1)
     net-imap (0.6.7)
@@ -242,8 +240,6 @@ GEM
       base64 (>= 0.1.0)
       logger (>= 1.6.0)
       rack (>= 3.0.0, < 4)
-    rack-proxy (2.0.0)
-      rack (>= 2.0, < 4)
     rack-session (2.1.2)
       base64 (>= 0.1.0)
       rack (>= 3.0.0)
@@ -349,15 +345,6 @@ GEM
     uri (1.1.1)
     useragent (0.16.11)
     version_gem (1.1.15)
-    vite_rails (3.11.1)
-      railties (>= 5.1, < 9)
-      vite_ruby (~> 3.0, >= 3.2.2)
-    vite_ruby (3.10.5)
-      dry-cli (>= 0.7, < 2)
-      logger (~> 1.6)
-      mutex_m
-      rack-proxy (>= 0.6.1)
-      zeitwerk (~> 2.2)
     warden (1.2.9)
       rack (>= 2.0.9)
     web-console (4.3.0)
@@ -398,7 +385,6 @@ DEPENDENCIES
   rubocop-rails-omakase
   solid_queue (~> 1.7)
   tzinfo-data
-  vite_rails (~> 3.11)
   web-console
 
 RUBY VERSION

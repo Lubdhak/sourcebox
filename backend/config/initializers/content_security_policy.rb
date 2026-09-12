@@ -16,19 +16,20 @@
 Rails.application.configure do
   asset_host = ENV["ASSET_HOST"].presence
 
-  # In development, Vite serves modules and the HMR client from its own container.
-  vite_dev_origins =
-    if Rails.env.development?
-      port = ENV.fetch("VITE_RUBY_PORT", "3036")
-      [ "http://localhost:#{port}", "http://127.0.0.1:#{port}" ]
-    else
-      []
-    end
+  # In development the frontend container serves modules and the HMR client from its own
+  # origin, so that origin has to be allowed explicitly for scripts, styles and the
+  # websocket.
+  dev_server = ENV["VITE_DEV_SERVER_URL"].presence
 
+  vite_dev_origins = dev_server ? [ dev_server ] : []
+
+  # The HMR websocket is the same host and port over ws://. connect-src does not inherit
+  # from script-src, so it must be listed separately or hot reloading fails while
+  # everything else works -- a confusing failure worth avoiding.
   vite_dev_websockets =
-    if Rails.env.development?
-      port = ENV.fetch("VITE_RUBY_PORT", "3036")
-      [ "ws://localhost:#{port}", "ws://127.0.0.1:#{port}" ]
+    if dev_server
+      uri = URI.parse(dev_server)
+      [ "ws://#{uri.host}:#{uri.port}" ]
     else
       []
     end

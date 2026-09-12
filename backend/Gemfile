@@ -33,9 +33,18 @@ gem "tzinfo-data", platforms: %i[windows jruby]
 gem "graphql", "~> 2.6"
 
 # --- Frontend bridge ----------------------------------------------------
-# Inertia protocol v3. Vite owns app/frontend; Propshaft/Importmap are not installed.
+# Inertia protocol v3: Rails renders the page shell and the props, React renders the page.
 gem "inertia_rails", "~> 3.22"
-gem "vite_rails", "~> 3.11"
+
+# No vite_rails / vite_ruby, and no Propshaft or Importmap.
+#
+# vite_ruby would make Rails own the frontend build: it shells out to `vite build`, owns
+# config/vite.json, and expects the source to live under app/frontend. That is convenient
+# in a monolith and fatal to splitting the frontend into its own repository.
+#
+# Instead the frontend/ project builds itself and publishes dist/manifest.json, and
+# FrontendAssets::Manifest reads it. The entire backend/frontend contract is that manifest
+# plus the URL it is served from.
 
 # --- Authentication -----------------------------------------------------
 gem "devise", "~> 5.0"

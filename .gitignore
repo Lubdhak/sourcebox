@@ -1,60 +1,52 @@
 # =========================
-# Rails
-# =========================
-/log/*
-/tmp/*
-!/log/.keep
-!/tmp/.keep
-
-/storage/*
-!/storage/.keep
-
-/public/assets
-/public/packs
-/public/vite
-/public/vite-dev
-/public/uploads
-
-.byebug_history
-
-# Rails credentials / secrets
-/config/master.key
-/config/credentials/*.key
-
-# =========================
-# Environment
+# Secrets — never commit
 # =========================
 .env
 .env.*
 !.env.example
-!.env.test.example
-!.env.production.example
+
+backend/config/master.key
+backend/config/credentials/*.key
+
+*.pem
+*.p12
+*.pfx
+*.key
+
+# Corporate proxy CAs are machine- and network-specific. Each service's build context has
+# its own certs directory (the Dockerfiles cannot reach outside their own directory), and
+# the placeholder README in each is tracked so the directory exists on a fresh clone.
+backend/docker/certs/*.crt
+frontend/docker/certs/*.crt
 
 # =========================
-# Ruby / Bundler
+# Backend (Rails)
 # =========================
-.bundle/
-/vendor/bundle/
+backend/log/*
+!backend/log/.keep
+backend/tmp/*
+!backend/tmp/.keep
+backend/storage/*
+!backend/storage/.keep
+
+backend/.bundle/
+backend/vendor/bundle/
+backend/public/assets
+backend/.byebug_history
 
 # =========================
-# Node / React / Vite
+# Frontend (Vite)
 # =========================
-node_modules/
-/.npm
-/.yarn
-.pnpm-debug.log*
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
+.npm
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# Vite
-dist/
-.vite/
-
-# =========================
-# TypeScript
-# =========================
-*.tsbuildinfo
+.pnpm-debug.log*
 
 # =========================
 # Docker
@@ -62,118 +54,34 @@ dist/
 docker-compose.override.yml
 
 # =========================
-# Coverage / Testing
+# Test / coverage artifacts
 # =========================
-/coverage/
-/spec/tmp/
-/tmp/capybara/
+backend/coverage/
+backend/tmp/screenshots/
+backend/tmp/capybara/
 
 # =========================
-# Database
+# Databases
 # =========================
 *.sqlite3
 *.sqlite3-*
-/db/*.sqlite3
-/db/*.sqlite3-*
 
 # =========================
-# macOS
+# OS / editor
 # =========================
 .DS_Store
-
-# =========================
-# Linux
-# =========================
-*~
-
-# =========================
-# Windows
-# =========================
 Thumbs.db
 Desktop.ini
-
-# =========================
-# IDEs
-# =========================
-.idea/
-.vscode/
+*~
 *.swp
 *.swo
-
-# VS Code local config
-.vscode/*
-!.vscode/settings.example.json
-
-# =========================
-# RubyMine / IntelliJ
-# =========================
-*.iml
-
-# =========================
-# OS / Editor temporary files
-# =========================
 *.tmp
 *.temp
 *.bak
 *.orig
 
-# =========================
-# Test artifacts
-# =========================
-/tmp/screenshots/
-/tmp/capybara/
-
-# =========================
-# Generated documentation
-# =========================
-/docs/.vitepress/dist/
-
-# =========================
-# Local Docker data
-# =========================
-docker-data/
-postgres-data/
-
-# =========================
-# Local development scripts
-# =========================
-*.local.sh
-
-# =========================
-# Logs
-# =========================
-*.log
-
-# =========================
-# GraphQL generated files
-# =========================
-/app/graphql/generated/
-/app/frontend/graphql/generated/
-
-# =========================
-# Generated build artifacts
-# =========================
-/build/
-/dist/
-
-# =========================
-# Secrets / certificates
-# =========================
-*.pem
-*.key
-*.crt
-*.p12
-*.pfx
-
-# Keep example certificates if needed
-!*.example.pem
-!*.example.key
-# Ignore key files for decrypting credentials and more.
-/config/*.key
-
-
-# Corporate proxy CAs are machine-specific; never commit them.
-/docker/certs/*.crt
-!/docker/certs/.keep
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.example.json
 backend/tmp/*
-*.keep

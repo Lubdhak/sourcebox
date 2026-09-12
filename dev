@@ -9,17 +9,26 @@
 #   ./dev shell [svc]  Interactive shell in a container
 #   ./dev console      Rails console
 #   ./dev dbconsole    psql session on the primary database
-#   ./dev test         Run the test suite
+#   ./dev test         Run the backend test suite
+#   ./dev typecheck    Type-check the frontend
 #   ./dev migrate      Run pending migrations
 #   ./dev prepare      Idempotent database preparation (create + migrate + queue schema)
 #   ./dev seed         Load development seed data (idempotent)
 #   ./dev restart      Restart application services
 #   ./dev ps           Show service status
-#   ./dev run ...      Run an arbitrary command in the web image
+#   ./dev run ...      Run an arbitrary command in the backend image
+#   ./dev npm ...      Run an arbitrary npm command in the frontend image
+#
+# Topology (one container per concern, each built from its own directory):
+#
+#   postgres   database/    PostgreSQL 18
+#   backend    backend/     Rails: HTML shell, Inertia props, GraphQL
+#   worker     backend/     Solid Queue
+#   frontend   frontend/    Vite dev server with HMR
 #
 # Design notes:
-#   * Compose is the single source of truth for the topology; this script only
-#     sequences it and fails loudly with actionable messages.
+#   * Compose is the single source of truth for the topology; this script only sequences
+#     it and fails loudly with actionable messages.
 #   * Nothing destructive ever runs automatically. No db:reset, no db:drop.
 #   * Ctrl+C shuts the stack down cleanly instead of orphaning containers.
 set -euo pipefail
@@ -27,7 +36,12 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 readonly COMPOSE_PROJECT="sourcebox"
-readonly APP_SERVICES=(web worker vite)
+readonly APP_SERVICES=(backend worker frontend)
+
+# Each service's build context is its own directory, so a proxy CA has to be staged into
+# each one. This is the cost of keeping the contexts separable, and it is worth paying:
+# neither Dockerfile can reach outside its own directory.
+readonly CERT_DIRS=(backend/docker/certs frontend/docker/certs)
 
 # --- Output helpers -----------------------------------------------------
 if [ -t 1 ]; then
@@ -86,12 +100,10 @@ require_env_file() {
     "Google login additionally needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
 }
 
-# Warn about placeholders rather than letting the app fail at runtime with a
-# confusing stack trace.
+# Warn about placeholders rather than letting the app fail later with a confusing stack
+# trace.
 check_env_values() {
-  local missing=()
-  # shellcheck disable=SC1091
-  local secret google_id
+  local missing=() secret google_id
   secret=$(grep -E '^SECRET_KEY_BASE=' .env | cut -d= -f2- || true)
   google_id=$(grep -E '^GOOGLE_CLIENT_ID=' .env | cut -d= -f2- || true)
 
@@ -104,22 +116,22 @@ check_env_values() {
 }
 
 # Networks that intercept TLS (Zscaler, Netskope, corporate MITM proxies) break
-# `bundle install` and `npm install` inside containers, because the container trusts
-# neither the proxy's root CA nor — in Node's case — the system trust store at all.
+# `bundle install` and `npm ci` inside containers, because the container trusts neither the
+# proxy's root CA nor — in Node's case — the system trust store at all.
 #
-# The host already trusts it, so detect the CA the host was configured with and stage
-# it where the Dockerfile picks it up. This turns an opaque TLS failure mid-build into
-# a no-op.
+# The host already trusts it, so detect the CA the host was configured with and stage it
+# where each Dockerfile picks it up. Turns an opaque mid-build TLS failure into a no-op.
 stage_proxy_ca() {
-  mkdir -p docker/certs
+  local dir
+  for dir in "${CERT_DIRS[@]}"; do mkdir -p "$dir"; done
 
-  # Already staged by hand.
-  if ls -A docker/certs/*.crt >/dev/null 2>&1; then
-    ok "corporate CA present in docker/certs/"
+  # Already staged by hand or by a previous run.
+  if ls -A backend/docker/certs/*.crt >/dev/null 2>&1; then
+    ok "corporate CA already staged"
     return 0
   fi
 
-  local candidate=""
+  local candidate="" var=""
   for var in NODE_EXTRA_CA_CERTS SSL_CERT_FILE CURL_CA_BUNDLE REQUESTS_CA_BUNDLE AWS_CA_BUNDLE; do
     local value="${!var:-}"
     if [ -n "$value" ] && [ -r "$value" ]; then candidate="$value"; break; fi
@@ -127,8 +139,8 @@ stage_proxy_ca() {
 
   [ -z "$candidate" ] && return 0
 
-  cp "$candidate" docker/certs/proxy-ca.crt
-  ok "staged TLS-inspection CA from \$${var} into docker/certs/"
+  for dir in "${CERT_DIRS[@]}"; do cp "$candidate" "$dir/proxy-ca.crt"; done
+  ok "staged TLS-inspection CA from \$${var}"
   info "detected a TLS-inspecting proxy; builds would otherwise fail on HTTPS"
 }
 
@@ -139,7 +151,8 @@ compose() { docker compose -p "$COMPOSE_PROJECT" "$@"; }
 build_images() {
   local args=("$@")
   step "Building images"
-  # web, worker and vite all resolve to the same build, so Compose builds it once.
+  info "backend (Ruby) · frontend (Node) — built in parallel, backend shared with worker"
+  # backend and worker resolve to the same image, so Compose builds it once.
   compose build "${args[@]}"
   ok "images ready"
 }
@@ -167,34 +180,39 @@ start_database() {
 }
 
 # Idempotent. db:prepare creates the databases if absent, runs pending migrations, and
-# loads db/queue_schema.rb into the queue database. On an existing database it is a
-# no-op beyond applying new migrations. It never drops anything.
+# loads db/queue_schema.rb into the queue database. On an existing database it does nothing
+# beyond applying new migrations. It never drops anything.
 prepare_database() {
   step "Preparing databases"
   info "db:prepare — creates if missing, migrates if pending, never destructive"
-  compose run --rm --no-deps web bin/rails db:prepare
+  compose run --rm --no-deps backend bin/rails db:prepare
   ok "schema up to date"
 }
 
 start_services() {
   step "Starting application services"
-  info "web (Rails + Inertia + GraphQL) · worker (Solid Queue) · vite (HMR)"
+  info "backend (Rails) · worker (Solid Queue) · frontend (Vite HMR)"
   compose up -d "${APP_SERVICES[@]}"
   ok "all services started"
 }
 
 print_banner() {
+  local backend_port="${BACKEND_PORT:-3000}"
+  local frontend_port="${FRONTEND_PORT:-5173}"
+  local pg_port="${POSTGRES_PORT:-5432}"
+
   cat <<BANNER
 
   ${C_BOLD}Sourcebox is running${C_RESET}
 
-    App          ${C_BLUE}http://localhost:3000${C_RESET}
-    Login        ${C_BLUE}http://localhost:3000/login${C_RESET}
-    GraphQL      ${C_BLUE}http://localhost:3000/graphql${C_RESET}  (POST)
-    Health       ${C_BLUE}http://localhost:3000/health${C_RESET} · ${C_BLUE}/ready${C_RESET}
-    Vite HMR     ${C_BLUE}http://localhost:3036${C_RESET}
-    PostgreSQL   ${C_BLUE}postgres://localhost:5432${C_RESET}
+    App          ${C_BLUE}http://localhost:${backend_port}${C_RESET}
+    Login        ${C_BLUE}http://localhost:${backend_port}/login${C_RESET}
+    GraphQL      ${C_BLUE}http://localhost:${backend_port}/graphql${C_RESET}  (POST)
+    Health       ${C_BLUE}http://localhost:${backend_port}/health${C_RESET} · ${C_BLUE}/ready${C_RESET}
+    Vite (HMR)   ${C_BLUE}http://localhost:${frontend_port}${C_RESET}
+    PostgreSQL   ${C_BLUE}postgres://localhost:${pg_port}${C_RESET}
 
+  ${C_DIM}Open the app on the backend port — Rails renders the HTML and loads JS from Vite.${C_RESET}
   ${C_DIM}Streaming logs. Ctrl+C stops the stack.${C_RESET}
 
 BANNER
@@ -211,8 +229,8 @@ shutdown() {
 
 stream_logs() {
   trap shutdown INT TERM
-  # --no-log-prefix is NOT used: the service-name prefix is what makes interleaved
-  # logs from web/worker/vite/postgres readable.
+  # --no-log-prefix is NOT used: the service-name prefix is what makes interleaved logs
+  # from backend/worker/frontend/postgres readable.
   compose logs -f --tail=20 || true
 }
 
@@ -275,24 +293,26 @@ case "${1:-up}" in
 
   shell|sh|bash)
     require_docker
-    service="${2:-web}"
-    # exec into the running container when possible; fall back to a one-off container.
+    service="${2:-backend}"
+    # `frontend` is a slim Node image with no bash.
+    shell_bin="/bin/bash"
+    [ "$service" = "frontend" ] && shell_bin="/bin/sh"
+
     if [ -n "$(compose ps -q "$service" 2>/dev/null)" ]; then
-      compose exec "$service" /bin/bash
+      compose exec "$service" "$shell_bin"
     else
-      compose run --rm "$service" /bin/bash
+      compose run --rm "$service" "$shell_bin"
     fi
     ;;
 
   console|c)
     require_docker
-    compose exec web bin/rails console 2>/dev/null \
-      || compose run --rm web bin/rails console
+    compose exec backend bin/rails console 2>/dev/null \
+      || compose run --rm backend bin/rails console
     ;;
 
   dbconsole|psql)
     require_docker
-    # shellcheck disable=SC2046
     compose exec postgres psql \
       -U "$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2-)" \
       -d "$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2-)"
@@ -303,7 +323,7 @@ case "${1:-up}" in
     require_env_file
     start_database
     step "Running migrations"
-    compose run --rm --no-deps web bin/rails db:migrate
+    compose run --rm --no-deps backend bin/rails db:migrate
     ok "migrated"
     ;;
 
@@ -320,32 +340,39 @@ case "${1:-up}" in
     start_database
     step "Seeding development data"
     info "idempotent — safe to re-run"
-    compose run --rm --no-deps web bin/rails db:seed
+    compose run --rm --no-deps backend bin/rails db:seed
     ;;
 
   test)
     require_docker
     require_env_file
     start_database
-    step "Running tests"
-    compose run --rm -e RAILS_ENV=test web bash -c 'bin/rails db:prepare && bin/rails test'
+    step "Running backend tests"
+    compose run --rm -e RAILS_ENV=test backend bash -c 'bin/rails db:prepare && bin/rails test'
     ;;
 
   typecheck)
     require_docker
-    step "Type-checking"
-    compose run --rm --no-deps vite npm run typecheck
+    step "Type-checking the frontend"
+    compose run --rm --no-deps frontend npm run typecheck
     ;;
 
   run)
     require_docker
     shift
     [ $# -eq 0 ] && die "Nothing to run." "Usage:  ./dev run bin/rails routes"
-    compose run --rm --no-deps web "$@"
+    compose run --rm --no-deps backend "$@"
+    ;;
+
+  npm)
+    require_docker
+    shift
+    [ $# -eq 0 ] && die "Nothing to run." "Usage:  ./dev npm run build"
+    compose run --rm --no-deps frontend npm "$@"
     ;;
 
   help|-h|--help)
-    sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     ;;
 
   *)
