@@ -9,8 +9,8 @@ module Users
   # that helper does not exist and the view raises NoMethodError. Rather than vendoring and
   # editing Devise's ERB, the page is an Inertia component like every other page in the app.
   #
-  # `create` and `destroy` are inherited unchanged: Warden already handles authentication and
-  # Devise already handles the redirects.
+  # `create` is inherited; `auth_options` below changes only how a failed sign-in is
+  # answered (redirect instead of recalling #new on the same POST). `destroy` is unchanged.
   class SessionsController < Devise::SessionsController
     # ApplicationController requires a session for every action. This is the page you visit
     # to get one.
@@ -35,6 +35,17 @@ module Users
         # becoming an account-enumeration oracle.
         error: flash[:alert],
       }
+    end
+
+    private
+
+    # Devise's default `recall: "users/sessions#new"` re-runs `#new` on the same POST
+    # after a failed sign-in. Rails 8 verifies CSRF again on that inner request, after
+    # the session token has already been rotated, which raises InvalidAuthenticityToken
+    # instead of showing "Invalid email or password." Omitting `recall` makes FailureApp
+    # redirect (303) to #new, which is a GET with a fresh token and the flash intact.
+    def auth_options
+      { scope: resource_name, locale: I18n.locale }
     end
   end
 end

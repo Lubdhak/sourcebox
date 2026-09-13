@@ -4,7 +4,11 @@ class ApplicationController < ActionController::Base
   # Rails 8 enables forgery protection by default. It is load-bearing here: the session
   # cookie is the authentication mechanism for both Inertia navigation and /graphql, so
   # CSRF protection is what stops a third-party page from acting as the user.
-  protect_from_forgery with: :exception
+  #
+  # `prepend: true` so this runs before Devise's `require_no_authentication`. Otherwise a
+  # failed sign-in can reset session state first and then fail the token check that should
+  # have been the first gate.
+  protect_from_forgery with: :exception, prepend: true
 
   before_action :set_event_context
   before_action :authenticate_user!
@@ -21,6 +25,9 @@ class ApplicationController < ActionController::Base
       # Lets the frontend logger correlate a browser-side error with the server logs
       # for the same request.
       requestId: request.request_id,
+      # Native forms cannot read the XSRF-TOKEN cookie Inertia sets. They need the token
+      # from this visit, not from the original document's meta tag.
+      csrfToken: form_authenticity_token,
     }.compact
   end
 

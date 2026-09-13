@@ -1,4 +1,4 @@
-import { Head, router, useHttp, usePage } from '@inertiajs/react'
+import { Head, useHttp, usePage } from '@inertiajs/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { graphql, GraphQLRequestError } from '@/lib/graphql'
 import { logger } from '@/lib/logger'
@@ -152,7 +152,7 @@ export default function DashboardShow({ dashboardId, initialUiState }: Dashboard
 
         if (err instanceof GraphQLRequestError && err.isUnauthenticated) {
           // The session is gone; a full visit lets Rails redirect to the login page.
-          router.visit('/login')
+          window.location.replace('/login')
           return
         }
 
@@ -306,7 +306,11 @@ function SignOutButton() {
       type="button"
       disabled={processing}
       onClick={() =>
-        void submit().finally(() => router.visit('/login', { replace: true }))
+        void submit().finally(() => {
+          // Full document load so Rails writes a new csrf-token meta tag for the
+          // next sign-in. An Inertia visit would reuse the previous document head.
+          window.location.replace('/login')
+        })
       }
       className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
     >

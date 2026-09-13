@@ -1,7 +1,8 @@
-import { Head } from '@inertiajs/react'
+import { Head, usePage } from '@inertiajs/react'
 import { AnalogClock } from '@/components/AnalogClock'
 import { LogoCarousel } from '@/components/LogoCarousel'
-import type { LoginPageProps } from '@/types'
+import { readCsrfToken } from '@/lib/csrf'
+import type { InertiaSharedProps, LoginPageProps } from '@/types'
 
 /**
  * Google is the only identity provider, so this page has no fields — just a button that
@@ -12,8 +13,8 @@ import type { LoginPageProps } from '@/types'
  * form, Lato-adjacent sans, teal primary, outlined Google button.
  */
 export default function Login({ googleAuthPath, allowPasswordSignIn, error }: LoginPageProps) {
-  // Read at render time from the layout's meta tag.
-  const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ''
+  const { csrfToken: sharedToken } = usePage<InertiaSharedProps>().props
+  const csrfToken = typeof sharedToken === 'string' && sharedToken !== '' ? sharedToken : readCsrfToken()
 
   return (
     <div className="grid min-h-screen md:grid-cols-2">

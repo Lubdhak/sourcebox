@@ -1,3 +1,4 @@
+import { readCsrfToken } from '@/lib/csrf'
 import { logger } from '@/lib/logger'
 
 /**
@@ -64,17 +65,6 @@ export class GraphQLRequestError extends Error {
   }
 }
 
-/**
- * Rails' CSRF token, read from the meta tag in the layout.
- *
- * Required: /graphql is authenticated by the session cookie, so without CSRF protection
- * any other origin could drive mutations on the user's behalf. Read per request rather
- * than cached, because the token changes when the session is renewed.
- */
-function csrfToken(): string {
-  return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ''
-}
-
 export interface GraphQLRequestOptions {
   /** Names the operation in server logs and in the graphql.request event. */
   operationName?: string
@@ -96,7 +86,7 @@ export async function graphql<TData, TVariables extends Record<string, unknown> 
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        'X-CSRF-Token': csrfToken(),
+        'X-CSRF-Token': readCsrfToken(),
         // Lets Rails distinguish an XHR from a document request.
         'X-Requested-With': 'XMLHttpRequest',
       },

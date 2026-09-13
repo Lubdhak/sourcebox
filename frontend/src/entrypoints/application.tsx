@@ -1,6 +1,7 @@
-import { createInertiaApp } from '@inertiajs/react'
+import { createInertiaApp, router } from '@inertiajs/react'
 import type { ResolvedComponent } from '@inertiajs/react'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { writeCsrfToken } from '@/lib/csrf'
 import { logger, reportNavigationTiming } from '@/lib/logger'
 import '@/styles/application.css'
 
@@ -24,6 +25,11 @@ const pages = import.meta.glob<{ default: ResolvedComponent }>('../pages/**/*.ts
 if (import.meta.hot) {
   import.meta.hot.accept()
 }
+
+router.on('navigate', (event) => {
+  const token = event.detail.page.props.csrfToken
+  if (typeof token === 'string' && token !== '') writeCsrfToken(token)
+})
 
 void createInertiaApp({
   // Surfaces double-rendering bugs and deprecated lifecycles during development. React

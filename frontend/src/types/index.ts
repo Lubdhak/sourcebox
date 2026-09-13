@@ -52,6 +52,11 @@ export interface SharedProps {
   }
   /** Correlates a browser-side log line with the server logs for the same request. */
   requestId?: string
+  /**
+   * Fresh authenticity token for the current session. Native forms must use this (or
+   * the meta tag after CsrfSync) rather than a token captured on a previous visit.
+   */
+  csrfToken?: string
 }
 
 /**
