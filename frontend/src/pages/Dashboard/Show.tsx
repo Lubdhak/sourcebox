@@ -1,5 +1,6 @@
-import { Head, useHttp, usePage } from '@inertiajs/react'
+import { Head, usePage } from '@inertiajs/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppShell } from '@/components/AppShell'
 import { graphql, GraphQLRequestError } from '@/lib/graphql'
 import { logger } from '@/lib/logger'
 import type { DashboardPageProps, InertiaSharedProps, Layout, Theme, UiState } from '@/types'
@@ -178,36 +179,27 @@ export default function DashboardShow({ dashboardId, initialUiState }: Dashboard
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <Head title="Dashboard" />
-
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Dashboard</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+    <AppShell
+      header={
+        <>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <h1 className="text-sm font-semibold text-foreground">Dashboard</h1>
+            <p className="text-xs text-muted-foreground">
               {currentUser ? currentUser.name : 'Not signed in'}
             </p>
           </div>
+          <span
+            aria-live="polite"
+            className={`text-xs ${saving ? 'text-muted-foreground' : 'text-transparent'}`}
+          >
+            Saving…
+          </span>
+        </>
+      }
+    >
+      <Head title="Dashboard" />
 
-          <div className="flex items-center gap-3">
-            {/* Reflects in-flight saves without blocking interaction. Disabling the
-                controls would defeat the point of an optimistic UI. */}
-            <span
-              aria-live="polite"
-              className={`text-xs ${saving ? 'text-slate-500 dark:text-slate-400' : 'text-transparent'}`}
-            >
-              Saving…
-            </span>
-            {currentUser?.avatarUrl && (
-              <img src={currentUser.avatarUrl} alt="" className="h-8 w-8 rounded-full" />
-            )}
-            <SignOutButton />
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      <div className="mx-auto max-w-5xl px-6 py-8">
         {error && (
           <div
             role="alert"
@@ -278,44 +270,8 @@ export default function DashboardShow({ dashboardId, initialUiState }: Dashboard
             </p>
           )}
         </section>
-      </main>
-    </div>
-  )
-}
-
-/**
- * Sign-out, demonstrating Inertia v3's `useHttp`.
- *
- * `useHttp` is the right tool when a request is a *server action* that should participate
- * in Inertia's request lifecycle (CSRF, `processing`) without being a page visit of its
- * own. Unlike `router.delete`, it does not follow a redirect as a visit — Devise's JSON
- * destroy responds 204 — so after the session is gone we visit login ourselves.
- *
- * Contrast with the GraphQL client above: that is for client state, returns data rather
- * than a redirect, and must never touch history. Same page, two transports, chosen by what
- * the request *is* rather than by preference.
- *
- * DELETE because Devise's sign_out_via is :delete, which stops a prefetched link or an
- * <img> tag from ending someone's session.
- */
-function SignOutButton() {
-  const { processing, submit } = useHttp('delete', '/users/sign_out', {})
-
-  return (
-    <button
-      type="button"
-      disabled={processing}
-      onClick={() =>
-        void submit().finally(() => {
-          // Full document load so Rails writes a new csrf-token meta tag for the
-          // next sign-in. An Inertia visit would reuse the previous document head.
-          window.location.replace('/login')
-        })
-      }
-      className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-    >
-      {processing ? 'Signing out…' : 'Sign out'}
-    </button>
+      </div>
+    </AppShell>
   )
 }
 
