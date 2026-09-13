@@ -31,7 +31,7 @@ export default function Login({ googleAuthPath, allowPasswordSignIn, error }: Lo
 
         <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6">
           <p className="mb-8 text-xs font-bold uppercase tracking-[0.28em] text-white/80">Sourcebox</p>
-          <AnalogClock className="w-[min(100%,16rem)] sm:w-[20rem] md:w-[22rem] lg:w-[26rem]" />
+          <AnalogClock className="w-[min(100%,18rem)] sm:w-[22rem] md:w-[24rem] lg:w-[28rem]" />
           <p className="mt-8 max-w-xs text-center text-sm font-light leading-relaxed text-white/75">
             Visualize the work. Sign in to pick up where you left off.
           </p>

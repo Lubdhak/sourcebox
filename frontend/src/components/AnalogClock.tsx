@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+
+const CX = 110
+const CY = 110
+const DIAL_R = 96
+const SUB_X = 110
+const SUB_Y = 164
+const SUB_R = 22
 
 function formatTime(date: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -24,13 +31,35 @@ function angles(date: Date) {
   return { hour: hours * 30, minute: minutes * 6, second: seconds * 6 }
 }
 
+function HourIndex({ hour, uid }: { hour: number; uid: string }) {
+  const double = hour === 0 || hour === 3 || hour === 9
+  const y = -(DIAL_R - 5)
+  return (
+    <g transform={`rotate(${hour * 30} ${CX} ${CY})`}>
+      <g transform={`translate(${CX} ${CY})`}>
+        {double ? (
+          <>
+            <rect x={-5.4} y={y} width={3.3} height={16.8} rx={0.7} fill={`url(#${uid}-index)`} />
+            <rect x={2.1} y={y} width={3.3} height={16.8} rx={0.7} fill={`url(#${uid}-index)`} />
+          </>
+        ) : (
+          <rect x={-2.15} y={y} width={4.4} height={14.6} rx={0.7} fill={`url(#${uid}-index)`} />
+        )}
+      </g>
+    </g>
+  )
+}
+
 /**
- * A live analog clock. Hands are rotated on the SVG itself so the face is not
- * re-rendered every frame. The caption updates once a second.
+ * Sports-watch dial: textured blue sunburst, applied steel markers, faceted
+ * hands, and a small-seconds register at 6. Hands are rotated on the SVG so the
+ * face is not re-rendered every frame.
  *
  * `prefers-reduced-motion` skips the sweep and only moves the hands once a minute.
  */
 export function AnalogClock({ className = '' }: { className?: string }) {
+  const rawId = useId()
+  const uid = rawId.replace(/:/g, '')
   const hourRef = useRef<SVGGElement>(null)
   const minuteRef = useRef<SVGGElement>(null)
   const secondRef = useRef<SVGGElement>(null)
@@ -41,9 +70,9 @@ export function AnalogClock({ className = '' }: { className?: string }) {
 
     const apply = (date: Date) => {
       const { hour, minute, second } = angles(date)
-      hourRef.current?.setAttribute('transform', `rotate(${hour} 100 100)`)
-      minuteRef.current?.setAttribute('transform', `rotate(${minute} 100 100)`)
-      secondRef.current?.setAttribute('transform', `rotate(${second} 100 100)`)
+      hourRef.current?.setAttribute('transform', `rotate(${hour} ${CX} ${CY})`)
+      minuteRef.current?.setAttribute('transform', `rotate(${minute} ${CX} ${CY})`)
+      secondRef.current?.setAttribute('transform', `rotate(${second} ${SUB_X} ${SUB_Y})`)
     }
 
     apply(new Date())
@@ -77,79 +106,159 @@ export function AnalogClock({ className = '' }: { className?: string }) {
   return (
     <figure className={`flex flex-col items-center ${className}`}>
       <svg
-        viewBox="0 0 200 200"
-        className="h-auto w-full drop-shadow-[0_24px_40px_rgba(0,0,0,0.28)]"
+        viewBox="0 0 220 220"
+        className="h-auto w-full drop-shadow-[0_28px_36px_rgba(0,0,0,0.38)]"
         role="img"
         aria-label={`Analog clock showing ${label}`}
       >
         <defs>
-          <radialGradient id="clock-face" cx="50%" cy="38%" r="70%">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="100%" stopColor="#e8eef0" />
-          </radialGradient>
-          <linearGradient id="clock-bezel" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#c5d5d8" />
-            <stop offset="50%" stopColor="#f7fbfb" />
-            <stop offset="100%" stopColor="#9bb6bb" />
+          <linearGradient id={`${uid}-steel`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#f6f8fa" />
+            <stop offset="38%" stopColor="#c9d0d8" />
+            <stop offset="62%" stopColor="#eef3f6" />
+            <stop offset="100%" stopColor="#8ea0ab" />
           </linearGradient>
+          <linearGradient id={`${uid}-index`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#8b97a2" />
+            <stop offset="30%" stopColor="#f5f7f9" />
+            <stop offset="70%" stopColor="#c5ced6" />
+            <stop offset="100%" stopColor="#6e7b86" />
+          </linearGradient>
+          <linearGradient id={`${uid}-hand-l`} x1="1" y1="0" x2="0" y2="0">
+            <stop offset="0%" stopColor="#f4f7f8" />
+            <stop offset="100%" stopColor="#8b9aa4" />
+          </linearGradient>
+          <linearGradient id={`${uid}-hand-r`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#e8eef1" />
+            <stop offset="100%" stopColor="#b7c2c9" />
+          </linearGradient>
+          <radialGradient id={`${uid}-dial`} cx="48%" cy="42%" r="72%">
+            <stop offset="0%" stopColor="#7fd0e4" />
+            <stop offset="28%" stopColor="#2a9ec0" />
+            <stop offset="62%" stopColor="#1678a4" />
+            <stop offset="100%" stopColor="#0c4f78" />
+          </radialGradient>
+          <radialGradient id={`${uid}-sub`} cx="46%" cy="38%" r="70%">
+            <stop offset="0%" stopColor="#f3f6f8" />
+            <stop offset="100%" stopColor="#c2cdd4" />
+          </radialGradient>
+          <radialGradient id={`${uid}-glass`} cx="32%" cy="22%" r="55%">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.28)" />
+            <stop offset="45%" stopColor="rgba(255,255,255,0.06)" />
+            <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+          </radialGradient>
+          <pattern id={`${uid}-waffle`} width="4.2" height="4.2" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="4.2" height="4.2" fill="transparent" />
+            <rect width="2" height="2" fill="rgba(255,255,255,0.09)" />
+            <rect x="2.2" y="2.2" width="2" height="2" fill="rgba(0,20,40,0.1)" />
+          </pattern>
+          <clipPath id={`${uid}-dial-clip`}>
+            <circle cx={CX} cy={CY} r={DIAL_R} />
+          </clipPath>
+          <mask id={`${uid}-hour-hole`}>
+            <rect x="-14" y="-64" width="28" height="90" fill="white" />
+            <circle cy="-14" r="3" fill="black" />
+          </mask>
+          <mask id={`${uid}-minute-hole`}>
+            <rect x="-12" y="-90" width="24" height="116" fill="white" />
+            <circle cy="-13" r="2.6" fill="black" />
+          </mask>
         </defs>
 
-        <circle cx="100" cy="100" r="98" fill="url(#clock-bezel)" />
-        <circle cx="100" cy="100" r="90" fill="url(#clock-face)" />
-        <circle cx="100" cy="100" r="86" fill="none" stroke="#006676" strokeWidth="1.25" opacity="0.35" />
+        <circle cx={CX} cy={CY} r={109} fill={`url(#${uid}-steel)`} />
+        <circle cx={CX} cy={CY} r={102.5} fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="1.4" />
+        <circle cx={CX} cy={CY} r={DIAL_R} fill={`url(#${uid}-dial)`} />
 
-        {Array.from({ length: 60 }, (_, i) => {
-          const angle = (i * 6 * Math.PI) / 180
-          const isHour = i % 5 === 0
-          const inner = isHour ? 74 : 80
-          const outer = 84
+        <g clipPath={`url(#${uid}-dial-clip)`}>
+          {Array.from({ length: 96 }, (_, i) => {
+            const a = (i * Math.PI) / 48
+            return (
+              <line
+                key={i}
+                x1={CX}
+                y1={CY}
+                x2={CX + DIAL_R * Math.sin(a)}
+                y2={CY - DIAL_R * Math.cos(a)}
+                stroke="rgba(255,255,255,0.07)"
+                strokeWidth={i % 4 === 0 ? 1.3 : 0.5}
+              />
+            )
+          })}
+          <circle cx={CX} cy={CY} r={DIAL_R} fill={`url(#${uid}-waffle)`} />
+          <circle cx={CX} cy={CY} r={DIAL_R} fill={`url(#${uid}-glass)`} />
+        </g>
+
+        <circle cx={CX} cy={CY} r={DIAL_R - 0.7} fill="none" stroke="rgba(10,40,60,0.35)" strokeWidth="1.2" />
+
+        {[0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11].map((hour) => (
+          <HourIndex key={hour} hour={hour} uid={uid} />
+        ))}
+
+        <text
+          x={CX}
+          y={CY - 28}
+          textAnchor="middle"
+          fill="#f4f8fb"
+          fontSize="11"
+          fontWeight={650}
+          letterSpacing="2"
+          fontFamily="ui-serif, Georgia, serif"
+        >
+          SOURCEBOX
+        </text>
+        <text
+          x={CX}
+          y={CY - 16}
+          textAnchor="middle"
+          fill="rgba(244,248,251,0.72)"
+          fontSize="5.4"
+          fontWeight={600}
+          letterSpacing="2.2"
+          fontFamily="ui-sans-serif, system-ui, sans-serif"
+        >
+          AUTOMATIC
+        </text>
+
+        <circle cx={SUB_X} cy={SUB_Y} r={SUB_R + 1.5} fill={`url(#${uid}-steel)`} />
+        <circle cx={SUB_X} cy={SUB_Y} r={SUB_R} fill={`url(#${uid}-sub)`} />
+        {Array.from({ length: 12 }, (_, i) => {
+          const a = (i * Math.PI) / 6
+          const inner = i % 3 === 0 ? SUB_R - 4.4 : SUB_R - 2.8
           return (
             <line
               key={i}
-              x1={100 + inner * Math.sin(angle)}
-              y1={100 - inner * Math.cos(angle)}
-              x2={100 + outer * Math.sin(angle)}
-              y2={100 - outer * Math.cos(angle)}
-              stroke={isHour ? '#014e5b' : '#99cbd3'}
-              strokeWidth={isHour ? 2.4 : 1}
+              x1={SUB_X + inner * Math.sin(a)}
+              y1={SUB_Y - inner * Math.cos(a)}
+              x2={SUB_X + (SUB_R - 1) * Math.sin(a)}
+              y2={SUB_Y - (SUB_R - 0.9) * Math.cos(a)}
+              stroke="#6d7c86"
+              strokeWidth={i % 3 === 0 ? 1.25 : 0.65}
               strokeLinecap="round"
             />
           )
         })}
 
-        {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((n, i) => {
-          const angle = (i * 30 * Math.PI) / 180
-          const r = 62
-          return (
-            <text
-              key={n}
-              x={100 + r * Math.sin(angle)}
-              y={100 - r * Math.cos(angle)}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="#014e5b"
-              fontSize={n % 3 === 0 ? 16 : 11}
-              fontWeight={n % 3 === 0 ? 700 : 500}
-              fontFamily="ui-sans-serif, system-ui, sans-serif"
-            >
-              {n}
-            </text>
-          )
-        })}
-
         <g ref={hourRef}>
-          <line x1="100" y1="112" x2="100" y2="52" stroke="#014e5b" strokeWidth="6" strokeLinecap="round" />
+          <g transform={`translate(${CX} ${CY})`} mask={`url(#${uid}-hour-hole)`}>
+            <polygon points="0,14 4.6,-40 0,-58" fill={`url(#${uid}-hand-r)`} />
+            <polygon points="0,14 -4.6,-40 0,-58" fill={`url(#${uid}-hand-l)`} />
+          </g>
         </g>
         <g ref={minuteRef}>
-          <line x1="100" y1="116" x2="100" y2="36" stroke="#006676" strokeWidth="4" strokeLinecap="round" />
+          <g transform={`translate(${CX} ${CY})`} mask={`url(#${uid}-minute-hole)`}>
+            <polygon points="0,16 3,-66 0,-84" fill={`url(#${uid}-hand-r)`} />
+            <polygon points="0,16 -3,-66 0,-84" fill={`url(#${uid}-hand-l)`} />
+          </g>
         </g>
         <g ref={secondRef}>
-          <line x1="100" y1="120" x2="100" y2="28" stroke="#f43e36" strokeWidth="1.6" strokeLinecap="round" />
-          <circle cx="100" cy="28" r="2.4" fill="#f43e36" />
+          <g transform={`translate(${SUB_X} ${SUB_Y})`}>
+            <polygon points="0,8.2 0.7,8.2 0.35,-17.6 0,-19.4 -0.35,-17.6 -0.7,10.4" fill="#16384a" />
+            <circle r="1.7" fill="#16384a" />
+          </g>
         </g>
 
-        <circle cx="100" cy="100" r="5.5" fill="#014e5b" />
-        <circle cx="100" cy="100" r="2.4" fill="#fff" />
+        <circle cx={CX} cy={CY} r="5.8" fill={`url(#${uid}-steel)`} />
+        <circle cx={CX} cy={CY} r="2.15" fill="#2a4554" />
       </svg>
 
       <figcaption className="mt-6 text-center">
