@@ -21,6 +21,10 @@ import '@/styles/application.css'
 // visit most of them.
 const pages = import.meta.glob<{ default: ResolvedComponent }>('../pages/**/*.tsx', { eager: true })
 
+if (import.meta.hot) {
+  import.meta.hot.accept()
+}
+
 void createInertiaApp({
   // Surfaces double-rendering bugs and deprecated lifecycles during development. React
   // strips the double-invocation in production builds, so this costs nothing live.

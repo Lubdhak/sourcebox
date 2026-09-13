@@ -64,7 +64,7 @@ module FrontendAssetsHelper
       window.__vite_plugin_react_preamble_installed__ = true;
     JS
 
-    tag.script(preamble.html_safe, type: "module", nonce: true)
+    tag.script(preamble.html_safe, type: "module", nonce: content_security_policy_nonce)
   end
 
   # Cross-origin by definition: the document comes from Rails and the asset from the

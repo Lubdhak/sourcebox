@@ -93,10 +93,13 @@ export default defineConfig({
     // does not deliver inotify, so the watcher has to poll, and a polling watcher with
     // no HMR client is wasted CPU. Reload the page, or `./dev restart frontend`, when
     // it is off.
-    hmr: hotReload
+    //
+    // Vite 8 moved the websocket settings to `server.ws`. The HTML is served from
+    // Rails (:3000), so without clientPort the client would open ws://localhost:3000
+    // and HMR would never connect.
+    hmr: hotReload,
+    ws: hotReload
       ? {
-          // The browser is on the host. The websocket must hit the published port, not
-          // the compose service name `frontend`.
           host: 'localhost',
           protocol: 'ws',
           clientPort: hmrClientPort(process.env.VITE_DEV_ORIGIN ?? 'http://localhost:5173'),

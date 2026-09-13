@@ -39,7 +39,7 @@
 #     turns it back on.
 #   * Hot reload is off by default (`FRONTEND_HOT_RELOAD` / `BACKEND_HOT_RELOAD`).
 #     Source is still bind-mounted, so `./dev restart` applies an edit without a rebuild.
-#     Set either to true in `.env` and restart that service to watch instead.
+#     Set either to true in `.env` (not .env.example) and `./dev restart` that service.
 #   * Written for the bash 3.2 that ships with macOS: no associative arrays, no `mapfile`,
 #     and no expansion of a possibly-empty array under `set -u`.
 set -euo pipefail
@@ -133,6 +133,27 @@ require_env_file() {
     "    ./dev run bin/rails secret" \
     "" \
     "Google login additionally needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+}
+
+# Compose interpolates `.env`, not `.env.example`. 1/true/yes/on count as on.
+env_flag_on() {
+  local value
+  value=$(grep -E "^${1}=" .env 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '[:space:]"')
+  case "$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+hot_reload_banner() {
+  local fe=off be=off
+  env_flag_on FRONTEND_HOT_RELOAD && fe=on
+  env_flag_on BACKEND_HOT_RELOAD && be=on
+  if [ "$fe" = on ] || [ "$be" = on ]; then
+    printf 'Hot reload: frontend=%s backend=%s' "$fe" "$be"
+  else
+    printf 'Hot reload is off. Flip FRONTEND_HOT_RELOAD / BACKEND_HOT_RELOAD in .env, then ./dev restart'
+  fi
 }
 
 # Warn about placeholders rather than letting the app fail later with a confusing stack
@@ -393,7 +414,7 @@ print_banner() {
     PostgreSQL   ${C_BLUE}postgres://localhost:${pg_port}${C_RESET}
 
   ${C_DIM}Open the app on the backend port — Rails renders the HTML and loads JS from Vite.${C_RESET}
-  ${C_DIM}Hot reload is off. Apply a change with:  ./dev restart${C_RESET}
+  ${C_DIM}$(hot_reload_banner)${C_RESET}
 
 BANNER
 }
@@ -479,10 +500,12 @@ case "${1:-up}" in
   restart)
     require_docker
     shift
+    # `compose restart` reuses the existing container and keeps the old env. `up`
+    # recreates so a FRONTEND_HOT_RELOAD / BACKEND_HOT_RELOAD change in `.env` applies.
     if [ $# -gt 0 ]; then
-      compose restart "$@"
+      compose up -d --no-deps --force-recreate "$@"
     else
-      compose restart "${APP_SERVICES[@]}"
+      compose up -d --no-deps --force-recreate "${APP_SERVICES[@]}"
     fi
     ;;
 
