@@ -3,31 +3,30 @@ require "active_support/core_ext/integer/time"
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
-  # Code is loaded once at boot and never reloaded. Pick up a change with:
+  # BACKEND_HOT_RELOAD=true reloads application code between requests. Off by default:
+  # Docker Desktop does not deliver inotify across the bind mount, so the watcher has
+  # to poll, and Solid Queue's poller threads sit outside the reloader interlock — which
+  # is how `logging.failure` replaced every worker log line the last time this was left
+  # on unconditionally.
   #
-  #     ./dev restart backend worker
-  #
-  # This trades edit-to-effect latency for a dev process that behaves exactly like
-  # production. What it buys:
-  #
-  #   * No file watcher. The polling watcher stat'd the whole autoload path on every
-  #     request, which is the one reliable option across Docker Desktop's file sharing
-  #     (inotify events do not cross it) and also the expensive one.
-  #   * No reload interlock, and therefore no class of bug where a constant resolves on
-  #     the request thread but raises NameError when first touched from a thread outside
-  #     the interlock — which is exactly how Solid Queue's pollers silently replaced
-  #     every worker log line with a `logging.failure` marker.
-  #   * No half-reloaded state, where a renamed constant or an edited initializer leaves
-  #     the process disagreeing with the source on disk.
-  config.enable_reloading = false
+  # The worker process (`bin/jobs`) never reloads, even when the flag is on. Pick up a
+  # job-code change with `./dev restart worker`.
+  hot_reload = ActiveModel::Type::Boolean.new.cast(ENV.fetch("BACKEND_HOT_RELOAD", false)) &&
+    File.basename($PROGRAM_NAME) != "jobs"
 
-  # Load everything at boot, which is the consistent pairing with reloading disabled: no
-  # lazy autoloading happens later from an arbitrary thread, and a file that does not
-  # parse or a missing constant fails the boot instead of the first request that hits it.
-  config.eager_load = true
+  config.enable_reloading = hot_reload
 
-  # Runs once at boot now that reloading is off. Kept so that development running against
-  # a built frontend resolves the manifest from a clean state.
+  # Docker Desktop virtiofs does not deliver inotify. FileUpdateChecker polls mtimes
+  # between requests instead of depending on the listen gem.
+  config.file_watcher = ActiveSupport::FileUpdateChecker if hot_reload
+
+  # Load everything at boot when reloading is off, so a file that does not parse or a
+  # missing constant fails the boot instead of the first request that hits it. When
+  # reloading is on, eager load would fight the reloader.
+  config.eager_load = !hot_reload
+
+  # Runs on boot, and on each reload when BACKEND_HOT_RELOAD is on, so a rebuilt frontend
+  # manifest is picked up without a server restart.
   config.to_prepare do
     FrontendAssets::Manifest.reset!
   end

@@ -25,7 +25,7 @@
 #   postgres   database/    PostgreSQL 18
 #   backend    backend/     Rails: HTML shell, Inertia props, GraphQL
 #   worker     backend/     Solid Queue
-#   frontend   frontend/    Vite dev server with HMR
+#   frontend   frontend/    Vite dev server
 #
 # Design notes:
 #   * Compose is the single source of truth for the topology; this script only sequences
@@ -37,9 +37,9 @@
 #     window shows the current boot rather than an accumulation of previous ones.
 #   * Per-query SQL logging is off by default because it drowns the worker. `LOG_SQL=true`
 #     turns it back on.
-#   * Hot reload is off in both processes: Rails loads code once at boot and Vite serves
-#     without HMR or a file watcher. Source is still bind-mounted, so `./dev restart`
-#     applies an edit without a rebuild.
+#   * Hot reload is off by default (`FRONTEND_HOT_RELOAD` / `BACKEND_HOT_RELOAD`).
+#     Source is still bind-mounted, so `./dev restart` applies an edit without a rebuild.
+#     Set either to true in `.env` and restart that service to watch instead.
 #   * Written for the bash 3.2 that ships with macOS: no associative arrays, no `mapfile`,
 #     and no expansion of a possibly-empty array under `set -u`.
 set -euo pipefail

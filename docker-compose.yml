@@ -5,14 +5,15 @@
 #   postgres   database/    PostgreSQL 18
 #   backend    backend/     Rails: HTML shell, Inertia props, GraphQL
 #   worker     backend/     Solid Queue (same image as backend, different command)
-#   frontend   frontend/    Vite dev server with HMR
+#   frontend   frontend/    Vite dev server
 #
 # backend/ and frontend/ have separate build contexts and separate Dockerfiles. Neither
 # references anything outside its own directory, so either can be lifted into its own
 # repository without edits. This file is the only place that knows they belong together.
 #
-# This is the DEVELOPMENT composition: source is bind-mounted, code reloads, and Vite runs
-# a dev server. For production use docker-compose.prod.yml.
+# This is the DEVELOPMENT composition: source is bind-mounted and Vite runs a dev server.
+# Hot reload is off by default (FRONTEND_HOT_RELOAD / BACKEND_HOT_RELOAD). For production
+# use docker-compose.prod.yml.
 
 name: sourcebox
 
@@ -38,6 +39,12 @@ x-backend: &backend
     # Setting this also puts FrontendAssets::Manifest into dev-server mode, so it never
     # looks for a build manifest.
     VITE_DEV_SERVER_URL: http://localhost:${FRONTEND_PORT:-5173}
+    # Rails injects the Vite client and React Refresh preamble when this is true.
+    # Default false: see .env.example.
+    FRONTEND_HOT_RELOAD: ${FRONTEND_HOT_RELOAD:-false}
+    # Rails reloads application code between requests when this is true. Default false.
+    # The worker still never reloads — see config/environments/development.rb.
+    BACKEND_HOT_RELOAD: ${BACKEND_HOT_RELOAD:-false}
   volumes:
     # Source is mounted so edits are picked up without a rebuild.
     - ./backend:/rails
@@ -121,6 +128,8 @@ services:
       # Absolute URLs Vite emits for assets referenced from inside CSS and JS. Host-side
       # address, because the browser is what fetches them.
       VITE_DEV_ORIGIN: http://localhost:${FRONTEND_PORT:-5173}
+      # Vite HMR + polling file watch. Default false: see .env.example.
+      FRONTEND_HOT_RELOAD: ${FRONTEND_HOT_RELOAD:-false}
     volumes:
       - ./frontend:/app
       # A named volume, NOT a bind mount. node_modules is tens of thousands of tiny files;

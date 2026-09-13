@@ -22,10 +22,9 @@ Rails.application.configure do
 
   vite_dev_origins = dev_server ? [ dev_server ] : []
 
-  # ws:// on the same host and port. HMR is currently disabled in vite.config.ts, so
-  # nothing opens this socket today. It stays allowed because connect-src does not inherit
-  # from script-src: turning HMR back on without this produces a page where every module
-  # loads and only live updates silently fail, which is an expensive thing to debug.
+  # ws:// on the same host and port as the Vite dev server. Required when
+  # FRONTEND_HOT_RELOAD is true; harmless when it is not (nothing opens the socket).
+  # connect-src does not inherit from script-src.
   vite_dev_websockets =
     if dev_server
       uri = URI.parse(dev_server)

@@ -13,6 +13,21 @@ import { defineConfig } from 'vite'
 //
 // That is the whole interface, which is what allows this directory to become its own
 // repository: no Ruby gem drives the build, and no Rails config is read.
+
+function envEnabled(name: string): boolean {
+  const value = process.env[name]
+  if (!value) return false
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase())
+}
+
+const hotReload = envEnabled('FRONTEND_HOT_RELOAD')
+
+function hmrClientPort(origin: string): number {
+  const url = new URL(origin)
+  if (url.port) return Number(url.port)
+  return url.protocol === 'https:' ? 443 : 80
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
 
@@ -74,23 +89,27 @@ export default defineConfig({
     // from the browser.
     allowedHosts: ['localhost', '127.0.0.1', 'frontend'],
 
-    // No HMR. The browser never refreshes on its own and never opens an HMR websocket;
-    // reload the page to see a change, and restart the container to rebuild the module
-    // graph:
-    //
-    //     ./dev restart frontend
-    //
-    // Vite still serves and transforms modules on request, so this remains a dev server
-    // rather than a static build — source maps, JSX and TS transforms all still work.
-    hmr: false,
+    // FRONTEND_HOT_RELOAD=true turns on HMR. Off by default: Docker Desktop's virtiofs
+    // does not deliver inotify, so the watcher has to poll, and a polling watcher with
+    // no HMR client is wasted CPU. Reload the page, or `./dev restart frontend`, when
+    // it is off.
+    hmr: hotReload
+      ? {
+          // The browser is on the host. The websocket must hit the published port, not
+          // the compose service name `frontend`.
+          host: 'localhost',
+          protocol: 'ws',
+          clientPort: hmrClientPort(process.env.VITE_DEV_ORIGIN ?? 'http://localhost:5173'),
+        }
+      : false,
 
-    // Stop watching the filesystem entirely. This is the setting that actually matters
-    // for CPU: reaching a bind mount through Docker Desktop's virtiofs makes inotify
-    // unreliable, so the watcher had to poll, and polling every 300ms over a shared
-    // volume is a constant background cost. With HMR off, a watcher would burn that cost
-    // to notify a client that no longer exists.
-    watch: {
-      ignored: ['**/*'],
-    },
+    watch: hotReload
+      ? {
+          usePolling: true,
+          interval: 300,
+        }
+      : {
+          ignored: ['**/*'],
+        },
   },
 })

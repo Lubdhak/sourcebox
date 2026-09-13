@@ -21,6 +21,14 @@
 
   --font-sans: "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --animate-marquee: logo-marquee 42s linear infinite;
+}
+
+@keyframes logo-marquee {
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 /*
@@ -48,6 +56,10 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
+    }
+
+    .animate-marquee {
+      animation: none !important;
     }
   }
 }
