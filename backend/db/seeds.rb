@@ -146,6 +146,8 @@ SEED_USERS.each do |attrs|
   puts "  #{user.email.ljust(24)} dashboard=#{dashboard.id} theme=#{dashboard.theme}"
 end
 
+load Rails.root.join("db/seeds/documentation.rb")
+
 puts <<~SUMMARY
 
   Seeded.
@@ -153,6 +155,7 @@ puts <<~SUMMARY
     Users:      #{User.count}
     Dashboards: #{Dashboard.count}
     Audit rows: #{AuditLog.count}
+    Doc spaces: #{DocumentationSpace.count} (#{Node.count} nodes, #{NodeRelationship.count} relationships)
 
   Password sign-in for any seeded account:  #{DEMO_PASSWORD}
   Google sign-in still requires real GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.

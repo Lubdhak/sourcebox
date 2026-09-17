@@ -74,6 +74,345 @@
   }
 }
 
+/*
+ * Rendered documentation.
+ *
+ * Tailwind's preflight removes the browser's own heading sizes, list markers and table
+ * borders, which is right everywhere else in the app and wrong for the one place where
+ * the HTML is written by a user rather than by a component. Without this block a
+ * Markdown page renders as an undifferentiated wall of body text -- headings the same
+ * size as paragraphs, bullets with no bullet -- so formatting someone typed would
+ * silently not appear.
+ *
+ * Kept in CSS rather than passed through a renderer that rewrites every tag with
+ * classes: the markup comes from `marked` and is sanitized, so descendant selectors are
+ * the only place the styling can attach.
+ */
+@layer components {
+  .documentation-markdown {
+    > * + * {
+      margin-block-start: 0.75em;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+      font-weight: 600;
+      line-height: 1.3;
+      margin-block-start: 1.5em;
+    }
+
+    h1 { font-size: 1.375em; }
+    h2 { font-size: 1.175em; }
+    h3 { font-size: 1.05em; }
+    h4 { font-size: 1em; }
+
+    :is(h1, h2, h3, h4):first-child {
+      margin-block-start: 0;
+    }
+
+    ul,
+    ol {
+      padding-inline-start: 1.5em;
+    }
+
+    ul { list-style: disc; }
+    ol { list-style: decimal; }
+    li::marker { color: var(--muted-foreground); }
+
+    li + li,
+    li > ul,
+    li > ol {
+      margin-block-start: 0.25em;
+    }
+
+    a {
+      color: var(--color-brand-600);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    strong { font-weight: 600; }
+    em { font-style: italic; }
+    del { text-decoration: line-through; }
+
+    code {
+      background: var(--muted);
+      border-radius: calc(var(--radius) * 0.4);
+      font-family: var(--font-mono);
+      font-size: 0.875em;
+      padding: 0.1em 0.3em;
+    }
+
+    pre {
+      background: var(--muted);
+      border-radius: calc(var(--radius) * 0.6);
+      overflow-x: auto;
+      padding: 0.75em 0.875em;
+
+      code {
+        background: none;
+        padding: 0;
+      }
+    }
+
+
+    blockquote {
+      border-inline-start: 2px solid var(--border);
+      color: var(--muted-foreground);
+      padding-inline-start: 0.875em;
+    }
+
+    hr {
+      border-block-start: 1px solid var(--border);
+      margin-block: 1.5em;
+    }
+
+    table {
+      border-collapse: collapse;
+      /* `display: block` is what lets a wide table scroll inside the panel instead of
+         stretching it. */
+      display: block;
+      overflow-x: auto;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--border);
+      /* Sized for a caret, not only for reading. An empty cell in a table somebody is
+         filling in has to be a thing you can aim at and see the edges of, so the cell
+         carries its own minimum height and width rather than collapsing to the width of
+         the word in it. */
+      height: 2.5em;
+      min-width: 6rem;
+      padding: 0.5em 0.75em;
+      text-align: start;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--muted);
+      font-weight: 600;
+    }
+
+    img {
+      border-radius: calc(var(--radius) * 0.6);
+      max-width: 100%;
+    }
+
+    input[type="checkbox"] {
+      margin-inline-end: 0.4em;
+    }
+
+    /* A mention: a link to another node in the same space, written as @Name by the
+       editor and recognised here by its href. It reads as a chip rather than as a link
+       because it points inside this document set, not out of it. */
+    a[href^="#node-"] {
+      background: var(--muted);
+      border-radius: calc(var(--radius) * 0.4);
+      color: var(--foreground);
+      font-weight: 500;
+      padding: 0.05em 0.35em;
+      text-decoration: none;
+      white-space: nowrap;
+
+      &:hover {
+        background: var(--accent);
+        color: var(--color-brand-600);
+      }
+    }
+  }
+
+  /*
+   * A highlighted code block: a gutter of line numbers and the source beside it.
+   *
+   * Not nested inside `.documentation-markdown`, because a typed code block uses the same
+   * markup outside a prose context -- one snippet should not look like two things
+   * depending on how it happens to be stored.
+   *
+   * Laid out as a flex row rather than with generated content, because the numbers come
+   * from a real element; `highlight.ts` has the reason they cannot be part of the code
+   * itself. `position: sticky` keeps them in view while a long line scrolls sideways
+   * underneath, and `user-select: none` keeps them out of anything copied: a snippet
+   * pasted with its line numbers attached is not runnable.
+   */
+  .code-block {
+    background: var(--muted);
+    border-radius: calc(var(--radius) * 0.6);
+    display: flex;
+    font-family: var(--font-mono);
+    gap: 0.875em;
+    overflow-x: auto;
+    padding-block: 0.75em;
+    padding-inline: 0;
+    position: relative;
+
+    /* The language, from the fence, as a corner label: a snippet whose language is not
+       named is one the reader has to guess at. Generated content rather than an element
+       so it is never selected with the code. */
+    &[data-language]::after {
+      color: var(--muted-foreground);
+      content: attr(data-language);
+      font-size: 0.7rem;
+      pointer-events: none;
+      position: absolute;
+      right: 0.5em;
+      top: 0.25em;
+    }
+
+    > code {
+      background: none;
+      flex: 1;
+      padding: 0;
+      padding-inline-end: 0.875em;
+      white-space: pre;
+    }
+  }
+
+  .code-gutter {
+    background: var(--muted);
+    border-inline-end: 1px solid var(--border);
+    color: var(--muted-foreground);
+    left: 0;
+    opacity: 0.7;
+    padding-inline: 0.75em 0.5em;
+    position: sticky;
+    text-align: end;
+    user-select: none;
+    white-space: pre;
+  }
+
+  /*
+   * Syntax highlighting.
+   *
+   * Highlight.js ships themes, and none of them is used: a theme is a fixed palette, and
+   * this application has two (light and dark) driven by CSS variables the user can be
+   * moved between at runtime. So the token classes are mapped onto the design tokens
+   * instead, which also means code in a documentation page looks like part of the page
+   * rather than like a screenshot of somebody's editor.
+   *
+   * Only the classes that carry meaning here are styled. Highlight.js emits a long tail
+   * of finer-grained ones, and an unstyled token simply reads as code, which is correct.
+   */
+  .hljs {
+    color: var(--foreground);
+
+    .hljs-comment,
+    .hljs-quote {
+      color: var(--muted-foreground);
+      font-style: italic;
+    }
+
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-literal,
+    .hljs-type,
+    .hljs-meta .hljs-keyword {
+      color: var(--color-brand-600);
+      font-weight: 500;
+    }
+
+    .hljs-string,
+    .hljs-regexp,
+    .hljs-addition,
+    .hljs-attribute,
+    .hljs-meta .hljs-string {
+      color: oklch(0.52 0.13 150);
+    }
+
+    .hljs-number,
+    .hljs-symbol,
+    .hljs-bullet,
+    .hljs-link,
+    .hljs-selector-attr,
+    .hljs-selector-pseudo {
+      color: oklch(0.55 0.15 40);
+    }
+
+    .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.function_,
+    .hljs-section,
+    .hljs-name,
+    .hljs-selector-id,
+    .hljs-selector-class {
+      color: oklch(0.5 0.15 300);
+    }
+
+    .hljs-attr,
+    .hljs-variable,
+    .hljs-template-variable,
+    .hljs-params,
+    .hljs-built_in,
+    .hljs-class .hljs-title {
+      color: oklch(0.5 0.1 220);
+    }
+
+    .hljs-meta,
+    .hljs-doctag,
+    .hljs-tag {
+      color: var(--muted-foreground);
+    }
+
+    .hljs-deletion {
+      color: var(--destructive);
+    }
+
+    .hljs-emphasis { font-style: italic; }
+    .hljs-strong { font-weight: 600; }
+  }
+
+  /* The same hues, lifted for a dark background: the light values are too dark to read
+     on one, and a single palette that works on both is a palette that works on neither. */
+  .dark .hljs {
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-literal,
+    .hljs-type,
+    .hljs-meta .hljs-keyword {
+      color: oklch(0.78 0.11 250);
+    }
+
+    .hljs-string,
+    .hljs-regexp,
+    .hljs-addition,
+    .hljs-attribute,
+    .hljs-meta .hljs-string {
+      color: oklch(0.8 0.13 150);
+    }
+
+    .hljs-number,
+    .hljs-symbol,
+    .hljs-bullet,
+    .hljs-link,
+    .hljs-selector-attr,
+    .hljs-selector-pseudo {
+      color: oklch(0.8 0.12 60);
+    }
+
+    .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.function_,
+    .hljs-section,
+    .hljs-name,
+    .hljs-selector-id,
+    .hljs-selector-class {
+      color: oklch(0.8 0.12 310);
+    }
+
+    .hljs-attr,
+    .hljs-variable,
+    .hljs-template-variable,
+    .hljs-params,
+    .hljs-built_in,
+    .hljs-class .hljs-title {
+      color: oklch(0.82 0.09 220);
+    }
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: 'Geist Variable', sans-serif;

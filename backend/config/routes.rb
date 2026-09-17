@@ -27,6 +27,13 @@ Rails.application.routes.draw do
   # Server-driven navigation. These render components, not JSON.
   resource :dashboard, only: [ :show ], controller: "dashboards"
 
+  # Documentation spaces. Only the two pages -- a list and a canvas -- because every
+  # mutation of the graph is a GraphQL operation, not a REST route.
+  #
+  # `:id` is a space's public UUID, not its database id. Nodes, edges and blocks get no
+  # routes at all: they are addressed inside the canvas, which is one page.
+  resources :documentation_spaces, only: [ :index, :show ], path: "spaces"
+
   # --- GraphQL ----------------------------------------------------------
   # One endpoint for all client-state reads and writes. No REST duplication.
   post "/graphql", to: "graphql#execute"

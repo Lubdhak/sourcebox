@@ -23,7 +23,10 @@
     "resolveJsonModule": true,
     "noEmit": true,
 
-    "types": ["vite/client"],
+    // `vitest/globals` rather than importing describe/it/expect in every test file, which
+    // matches `globals: true` in vitest.config.ts. It is in this project, not the Node
+    // one, because the tests render components and need the DOM lib.
+    "types": ["vite/client", "vitest/globals"],
 
     // TypeScript 7 removed `baseUrl`, so path mappings must be relative to this file.
     // The matching runtime alias is in vite.config.ts — both are required: this one is

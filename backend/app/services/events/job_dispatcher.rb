@@ -23,6 +23,20 @@ module Events
       Names::USER_AUTHENTICATED => [ AnalyticsEventJob ],
       Names::OAUTH_SUCCESS      => [ AnalyticsEventJob ],
       Names::OAUTH_FAILURE      => [ AnalyticsEventJob ],
+
+      # Documentation graph mutations feed analytics only.
+      #
+      # `node_moved` is deliberately absent: dragging a node emits one event per batched
+      # save, which on an active canvas is the highest-frequency domain event by an order
+      # of magnitude. It is still logged by JsonSubscriber, but enqueuing a job for it
+      # would put a row in the queue database for every drag gesture in exchange for
+      # nothing anyone reads.
+      Names::DOCUMENTATION_SPACE_CREATED => [ AnalyticsEventJob ],
+      Names::DOCUMENTATION_NODE_CREATED  => [ AnalyticsEventJob ],
+      Names::DOCUMENTATION_NODE_DELETED  => [ AnalyticsEventJob ],
+      Names::DOCUMENTATION_NODE_CLONED   => [ AnalyticsEventJob ],
+      Names::DOCUMENTATION_RELATIONSHIP_CREATED => [ AnalyticsEventJob ],
+      Names::DOCUMENTATION_RELATIONSHIP_DELETED => [ AnalyticsEventJob ],
     }.freeze
 
     # Only these events reach the subscriber. Job lifecycle events are deliberately

@@ -41,6 +41,19 @@ module ApplicationGraphql
     end
   end
 
+  # Raised when someone who *can* see a space asks to do something their role does not
+  # permit -- a viewer trying to move a node, an editor trying to change who has access.
+  #
+  # Unlike ForbiddenError above, this one says so. Hiding it behind NOT_FOUND exists to
+  # stop strangers enumerating other tenants' data, and a member is not a stranger: they
+  # are looking at the space, they know it exists, and telling them "not found" would
+  # only make a legible permissions rule look like a bug.
+  class InsufficientRoleError < Error
+    def initialize(message = "Your role in this space does not allow that.", required: nil, role: nil)
+      super(message, code: "FORBIDDEN", extensions: { requiredRole: required, role: role }.compact)
+    end
+  end
+
   # Mixed into base object types and base mutations.
   module Authorization
     private
@@ -78,6 +91,83 @@ module ApplicationGraphql
       owner_id = record.respond_to?(:user_id) ? record.user_id : record.try(:id)
 
       owner_id.present? && owner_id == current_user.id
+    end
+
+    # The access rule for the documentation graph.
+    #
+    # Nodes, relationships, layers and content blocks carry no owner of their own -- a
+    # space is the only thing that records access, and everything beneath it is reached
+    # through that space. So `authorize_owner!` cannot be applied to them directly, and
+    # every field that touches one has to arrive here first.
+    #
+    # Two different failures, deliberately:
+    #
+    #   no access at all  -> NOT_FOUND, identical to a space that does not exist. The
+    #                        graph is addressed by sequential node ids, so distinguishing
+    #                        the two would turn any field into an oracle for which ids
+    #                        exist in other people's spaces.
+    #   access, too weak  -> FORBIDDEN, and says which role would be needed. Someone who
+    #                        is already in the space learns nothing from this that they
+    #                        did not already know.
+    #
+    # `minimum` is one of DocumentationSpace::MINIMUM_ROLE's keys: :read, :write, :admin.
+    def authorize_space!(space, minimum = :read)
+      require_authentication!
+
+      raise NotFoundError if space.blank?
+      raise NotFoundError unless space.permits?(current_user, :read)
+
+      unless space.permits?(current_user, minimum)
+        raise InsufficientRoleError.new(
+          required: DocumentationSpace::MINIMUM_ROLE.fetch(minimum),
+          role: space.role_for(current_user)
+        )
+      end
+
+      space
+    end
+
+    # Resolves a space from the opaque `public_id` clients use in URLs and GraphQL
+    # arguments, then authorizes it.
+    def authorize_space_by_public_id!(public_id, minimum = :read)
+      authorize_space!(DocumentationSpace.find_by_public_id(public_id), minimum)
+    end
+
+    # Authorizes a record that belongs to a space, by loading its space and applying the
+    # rule above. Returns the record, so it reads as a guard at the top of a resolver:
+    #
+    #   node = authorize_within_space!(Node.find_by(id: id))
+    def authorize_within_space!(record, minimum = :read)
+      require_authentication!
+
+      raise NotFoundError if record.blank?
+
+      space_id = record.documentation_space_id
+      raise NotFoundError if space_id.blank?
+
+      authorize_space!(DocumentationSpace.find_by(id: space_id), minimum)
+
+      record
+    end
+
+    # Content blocks are two hops from their space (block -> node -> space), which is the
+    # only reason this needs its own helper rather than reusing the one above.
+    def authorize_content_block!(block, minimum = :read)
+      require_authentication!
+
+      raise NotFoundError if block.blank?
+
+      authorize_within_space!(Node.find_by(id: block.node_id), minimum)
+
+      block
+    end
+
+    # The space a record belongs to, already authorized. Reaching for
+    # `record.documentation_space` after a guard would be a second, unguarded load.
+    def space_of(record, minimum = :read)
+      authorize_within_space!(record, minimum)
+
+      DocumentationSpace.find(record.documentation_space_id)
     end
   end
 end

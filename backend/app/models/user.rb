@@ -7,6 +7,19 @@ class User < ApplicationRecord
 
   has_many :dashboards, dependent: :destroy
 
+  # Documentation ownership hangs off the existing account, and sharing hangs off
+  # ownership: a space belongs to one user who cannot be removed from it, and everyone
+  # else reaches it through a membership. Everything inside a space is authorized by
+  # reaching that space first, so these two associations are the whole access model.
+  has_many :documentation_spaces, dependent: :destroy
+  has_many :space_memberships, dependent: :destroy
+  has_many :shared_documentation_spaces, through: :space_memberships, source: :documentation_space
+
+  # Spaces this user owns *or* has been given access to.
+  def accessible_documentation_spaces
+    DocumentationSpace.accessible_by(self)
+  end
+
   validates :provider, presence: true, if: -> { uid.present? }
   validates :uid, presence: true, if: -> { provider.present? }
 

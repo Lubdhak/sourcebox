@@ -39,6 +39,11 @@ Rails.application.configure do
     # is never even invoked for the high-frequency graphql.* and job.* events.
     Rails.event.subscribe(Events::JobDispatcher.new, &Events::JobDispatcher.filter)
 
+    # Documentation changes additionally go straight out to everyone with that space
+    # open. Deliberately not routed through a job: a queue poll is a floor on how stale a
+    # collaborator's screen can be, and the point of the feature is that it is not stale.
+    Rails.event.subscribe(Events::RealtimeBroadcaster.new, &Events::RealtimeBroadcaster.filter)
+
     # In development and test, surface a broken subscriber immediately instead of
     # swallowing it. In production a logging bug must never break a request, so the
     # reporter's default behaviour (report to Rails.error and continue) is correct.

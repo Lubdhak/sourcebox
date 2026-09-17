@@ -1,9 +1,15 @@
 require_relative "boot"
 
 require "rails"
-# Only the frameworks this application actually uses. Action Cable, Active Storage,
-# Action Text and Action Mailbox are deliberately absent: no WebSockets, no uploads
-# (avatars are remote URLs), no rich text, no inbound mail.
+# Only the frameworks this application actually uses. Active Storage, Action Text and
+# Action Mailbox are deliberately absent: no uploads (avatars are remote URLs), no rich
+# text, no inbound mail.
+#
+# Action Cable is here because documentation spaces are edited by many people at once.
+# Everything else in this stack answers a request and forgets; collaboration is the one
+# feature that cannot, because a change made in one browser has to reach every other
+# browser looking at the same space without anyone pressing refresh.
+require "action_cable/engine"
 require "active_model/railtie"
 require "active_job/railtie"
 require "active_record/railtie"
@@ -39,6 +45,18 @@ module Sourcebox
     config.solid_queue.on_thread_error = ->(exception) do
       Rails.error.report(exception, handled: false, source: "solid_queue")
     end
+
+    # --- Realtime -------------------------------------------------------
+    #
+    # Same shape as the queue: a PostgreSQL-backed adapter pointed at its own database, so
+    # realtime message churn does not land in the primary's WAL or its backups. Solid
+    # Cable takes that pointer from config/cable.yml rather than from here.
+    #
+    # Origin checking stays on. Without it any page on the internet could open a socket to
+    # this server carrying the user's session cookie, which is the WebSocket equivalent of
+    # skipping CSRF protection. The permitted list is per environment, since only the
+    # environment knows what the app is served from.
+    config.action_cable.mount_path = "/cable"
 
     # --- Generators -----------------------------------------------------
     config.generators.system_tests = nil

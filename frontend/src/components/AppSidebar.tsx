@@ -1,5 +1,5 @@
 import { Link, useHttp, usePage } from '@inertiajs/react'
-import { Box, LayoutDashboard, LogOut } from 'lucide-react'
+import { Box, LayoutDashboard, LogOut, Network } from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +20,7 @@ export function AppSidebar() {
   const { currentUser } = page.props
   const { processing, submit } = useHttp('delete', '/users/sign_out', {})
   const onDashboard = page.url.startsWith('/dashboard')
+  const onSpaces = page.url.startsWith('/spaces')
 
   return (
     <Sidebar collapsible="icon">
@@ -49,6 +50,16 @@ export function AppSidebar() {
                   <span>Dashboard</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  render={<Link href="/spaces" />}
+                  isActive={onSpaces}
+                  tooltip="Documentation"
+                >
+                  <Network />
+                  <span>Documentation</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -58,11 +69,28 @@ export function AppSidebar() {
         <SidebarMenu>
           {currentUser && (
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip={currentUser.email} className="pointer-events-none">
+              {/*
+                The address under the name, not only in a tooltip. Sharing is by email
+                address, so "which account am I signed in as" stopped being a detail the
+                moment a space could belong to several people -- it is the answer to
+                "why can I only read this".
+
+                `h-auto` because the menu button is sized for one line; the taller
+                two-line variant is the exception here rather than a new component.
+              */}
+              <SidebarMenuButton
+                tooltip={currentUser.email}
+                className="pointer-events-none h-auto py-1.5"
+              >
                 {currentUser.avatarUrl ? (
-                  <img src={currentUser.avatarUrl} alt="" className="size-4 rounded-full" />
+                  <img src={currentUser.avatarUrl} alt="" className="size-6 shrink-0 rounded-full" />
                 ) : null}
-                <span className="truncate">{currentUser.name}</span>
+                <span className="grid min-w-0 flex-1 leading-tight">
+                  <span className="truncate">{currentUser.name}</span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {currentUser.email}
+                  </span>
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}

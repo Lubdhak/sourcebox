@@ -1,9 +1,11 @@
 # PostgreSQL 18.
 #
-# Two databases on ONE PostgreSQL server:
+# Three databases on ONE PostgreSQL server:
 #
-#   primary -> application data (users, dashboards)
+#   primary -> application data (users, dashboards, the documentation graph)
 #   queue   -> Solid Queue's 10 solid_queue_* tables
+#   cable   -> Solid Cable's message table, which is pure churn: every realtime message
+#              in a collaborative session lands there and is trimmed away again
 #
 # Why split them? Job churn is high-volume, short-lived write traffic. Keeping it
 # out of the primary keeps autovacuum, WAL volume and backup size predictable,
@@ -33,15 +35,31 @@ development:
     <<: *default
     database: <%= ENV.fetch("POSTGRES_DB", "sourcebox_development") %>_queue
     schema_dump: queue_schema.rb
+  cable:
+    <<: *default
+    database: <%= ENV.fetch("POSTGRES_DB", "sourcebox_development") %>_cable
+    schema_dump: cable_schema.rb
 
+# The test databases are derived with a `_test` suffix rather than read straight from
+# POSTGRES_DB.
+#
+# They used to be `ENV.fetch("POSTGRES_DB", "sourcebox_test")`, which reads correctly but
+# behaves badly: POSTGRES_DB is set in .env, so the fallback never applied and the test
+# environment connected to the *development* database. `db:test:prepare` then tried to
+# purge it, and the only thing that stopped it was Rails' protected-environments check
+# aborting the task -- after which the suite quietly ran against development data.
 test:
   primary:
     <<: *default
-    database: <%= ENV.fetch("POSTGRES_DB", "sourcebox_test") %>
+    database: <%= ENV.fetch("POSTGRES_TEST_DB") { "#{ENV.fetch('POSTGRES_DB', 'sourcebox')}_test" } %>
   queue:
     <<: *default
-    database: <%= ENV.fetch("POSTGRES_DB", "sourcebox_test") %>_queue
+    database: <%= ENV.fetch("POSTGRES_TEST_DB") { "#{ENV.fetch('POSTGRES_DB', 'sourcebox')}_test" } %>_queue
     schema_dump: queue_schema.rb
+  cable:
+    <<: *default
+    database: <%= ENV.fetch("POSTGRES_TEST_DB") { "#{ENV.fetch('POSTGRES_DB', 'sourcebox')}_test" } %>_cable
+    schema_dump: cable_schema.rb
 
 production:
   primary:
@@ -51,3 +69,7 @@ production:
     <<: *default
     database: <%= ENV.fetch("POSTGRES_DB", "sourcebox_production") %>_queue
     schema_dump: queue_schema.rb
+  cable:
+    <<: *default
+    database: <%= ENV.fetch("POSTGRES_DB", "sourcebox_production") %>_cable
+    schema_dump: cable_schema.rb

@@ -1,0 +1,35 @@
+# Action Cable's pub/sub backend.
+#
+# Solid Cable in every environment, including development and test, rather than the
+# generated default of `async` locally and `test` under test.
+#
+# The `async` adapter only reaches subscribers inside the process that published. This
+# stack runs a web container and a worker container from the same image, and Puma can run
+# more than one worker, so with `async` two browsers would each see their own edits and
+# nothing else. That is exactly the failure collaboration exists to prevent, and it would
+# show up only once someone opened a second tab -- or worse, only in production. Using the
+# real adapter locally means what works here works deployed.
+#
+# `polling_interval` is the fallback path; on PostgreSQL the adapter is woken by
+# LISTEN/NOTIFY and the poll is a safety net for a missed notification.
+default: &default
+  adapter: solid_cable
+  connects_to:
+    database:
+      writing: cable
+  polling_interval: 0.1.seconds
+  # Messages are transport, not record. They exist to be replayed to a subscriber that
+  # reconnects within the window; the durable state lives in the primary database, in
+  # `nodes`, `content_blocks` and `crdt_updates`. Ten minutes covers a laptop lid closing
+  # without letting a churn table grow into a backup problem.
+  message_retention: 10.minutes
+
+development:
+  <<: *default
+
+test:
+  <<: *default
+
+production:
+  <<: *default
+  polling_interval: 0.5.seconds

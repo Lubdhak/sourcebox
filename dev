@@ -11,6 +11,7 @@
 #   ./dev console      Rails console
 #   ./dev dbconsole    psql session on the primary database
 #   ./dev test         Run the backend test suite
+#   ./dev jstest       Run the frontend test suite
 #   ./dev typecheck    Type-check the frontend
 #   ./dev migrate      Run pending migrations
 #   ./dev prepare      Idempotent database preparation (create + migrate + queue schema)
@@ -567,6 +568,15 @@ case "${1:-up}" in
     start_database
     step "Running backend tests"
     compose run --rm -e RAILS_ENV=test backend bash -c 'bin/rails db:prepare && bin/rails test'
+    ;;
+
+  jstest)
+    require_docker
+    shift
+    step "Running frontend tests"
+    # --no-deps: Vitest runs in jsdom against mocked transports, so it needs neither the
+    # database nor a running backend.
+    compose run --rm --no-deps frontend npm test -- "$@"
     ;;
 
   typecheck)

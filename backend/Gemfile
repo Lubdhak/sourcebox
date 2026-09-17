@@ -57,6 +57,16 @@ gem "omniauth-rails_csrf_protection", "~> 2.0"
 # PostgreSQL-backed. Zero Redis: no redis, sidekiq, resque, rabbitmq or kafka.
 gem "solid_queue", "~> 1.7"
 
+# --- Realtime -----------------------------------------------------------
+# Action Cable's pub/sub backend, on PostgreSQL. Collaborative editing needs fan-out
+# between processes -- the `async` adapter only reaches subscribers in the same one, so
+# two browsers served by different Puma workers would never see each other.
+#
+# Redis is the usual answer and is deliberately not the answer here: it would be the only
+# reason this stack needs a second datastore, for a message volume PostgreSQL handles
+# through LISTEN/NOTIFY. Same trade as Solid Queue, made for the same reason.
+gem "solid_cable", "~> 3.0"
+
 group :development, :test do
   gem "debug", platforms: %i[mri windows], require: "debug/prelude"
   gem "brakeman", require: false

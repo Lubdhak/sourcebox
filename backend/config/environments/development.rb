@@ -37,6 +37,17 @@ Rails.application.configure do
   # Enable server timing.
   config.server_timing = true
 
+  # WebSocket origins. Action Cable rejects any handshake whose Origin is not listed, and
+  # the list is explicit even in development: a socket carrying the session cookie that
+  # any page could open is the WebSocket equivalent of turning off CSRF protection.
+  #
+  # Both ports are here because the app is genuinely served from two: Rails renders the
+  # HTML on BACKEND_PORT, and Vite serves modules from FRONTEND_PORT.
+  config.action_cable.allowed_request_origins = [
+    %r{\Ahttp://localhost:\d+\z},
+    %r{\Ahttp://127\.0\.0\.1:\d+\z},
+  ]
+
   # Enable/disable Action Controller caching. By default Action Controller caching is disabled.
   # Run rails dev:cache to toggle Action Controller caching.
   if Rails.root.join("tmp/caching-dev.txt").exist?
