@@ -14,6 +14,7 @@ import { DndPlugin } from '@platejs/dnd'
 import { BlockSelectionPlugin } from '@platejs/selection/react'
 import { CodeBlockPlugin, CodeLinePlugin, CodeSyntaxPlugin } from '@platejs/code-block/react'
 import { IndentPlugin } from '@platejs/indent/react'
+import { LinkRules } from '@platejs/link'
 import { LinkPlugin } from '@platejs/link/react'
 import { BulletedListRules, OrderedListRules, TaskListRules, isOrderedList } from '@platejs/list'
 import { ListPlugin } from '@platejs/list/react'
@@ -170,19 +171,33 @@ export const DOCUMENTATION_PLUGINS = [
   TableCellHeaderPlugin.withComponent(TableCellElement),
 
   /*
-    Links: click the toolbar button or type a URL followed by a space/Enter.
+    Links: click the toolbar button, or write one the way you would in Markdown.
 
     LinkPlugin owns the floating UI. When the toolbar's "Link" button is clicked
     it enters insert mode; when the cursor is inside an existing link it enters
     edit mode. The LinkFloatingToolbar component (rendered via `afterEditable`)
     handles both, appearing near the cursor rather than at the top of the page.
 
-    Auto-link (automatic URL detection as you type) is handled by LinkPlugin's
-    own input rules when configured with `inputRules`. Without a separate
-    AutoLinkPlugin in this version, URLs pasted or typed can still be wrapped
-    manually via the toolbar button.
+    The input rules are what turn typing into a link, and none of them is on by
+    default -- the plugin ships the rules and leaves the choice of which to
+    register to the editor:
+
+      markdown()           `[text](url)` becomes a link when the `)` is typed.
+      autolink('space')    a bare URL becomes a link at the following space.
+      autolink('break')    the same, at Enter.
+      autolink('paste')    a pasted URL becomes a link instead of plain text.
+
+    A URL here means one the plugin's `isUrl` recognises: it needs a scheme, so
+    `https://example.com` links and `example.com` stays text. That is deliberate
+    -- the looser test would turn `config.yaml` and `Node.js` into links.
   */
   LinkPlugin.configure({
+    inputRules: [
+      LinkRules.markdown(),
+      LinkRules.autolink({ variant: 'paste' }),
+      LinkRules.autolink({ variant: 'space' }),
+      LinkRules.autolink({ variant: 'break' }),
+    ],
     render: {
       afterEditable: LinkFloatingToolbar,
     },

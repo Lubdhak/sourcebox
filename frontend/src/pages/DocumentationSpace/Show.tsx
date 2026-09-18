@@ -7,10 +7,11 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { DuplicateNodeDialog } from '@/features/documentation/actions/NodeActionDialogs'
 import { DeleteNodesDialog } from '@/features/documentation/deletion/DeleteNodesDialog'
 import { Breadcrumb } from '@/features/documentation/canvas/Breadcrumb'
+import { canvasShortcuts } from '@/features/documentation/canvas/shortcuts'
 import { SpatialCanvas, type SpatialCanvasHandle } from '@/features/documentation/canvas/SpatialCanvas'
 import { PresenceBar } from '@/features/documentation/collaboration/PresenceBar'
 import { useSpaceChannel } from '@/features/documentation/collaboration/useSpaceChannel'
-import { InspectorColumn } from '@/features/documentation/inspector/InspectorColumn'
+import { InspectorColumn, initialInspectorWidth } from '@/features/documentation/inspector/InspectorColumn'
 import { InspectorPanel } from '@/features/documentation/inspector/InspectorPanel'
 import { useInspectorTrail } from '@/features/documentation/inspector/useInspectorTrail'
 import { NameRelationshipDialog } from '@/features/documentation/actions/NameRelationshipDialog'
@@ -79,12 +80,10 @@ export default function DocumentationSpaceShow({
   }, [])
 
   const canvasRef = useRef<SpatialCanvasHandle>(null)
-  // Kept in sync by InspectorColumn.onWidthChange. Initialised from localStorage so the
-  // very first selection uses the correct offset even before the user resizes the panel.
-  const [inspectorWidth, setInspectorWidth] = useState(() => {
-    const saved = Number(window.localStorage.getItem('sourcebox:inspector-width'))
-    return Number.isFinite(saved) && saved > 0 ? Math.round(Math.min(Math.max(saved, 380), 960)) : 560
-  })
+  // Kept in sync by InspectorColumn.onWidthChange. Seeded with the width the panel will
+  // open at, so the very first selection is centred correctly -- before the column has
+  // mounted and measured the row it shares with the canvas.
+  const [inspectorWidth, setInspectorWidth] = useState(initialInspectorWidth)
 
   const [pendingPosition, setPendingPosition] = useState<SpatialPosition | null>(null)
   /**
@@ -385,7 +384,7 @@ export default function DocumentationSpaceShow({
   )
 
   return (
-    <AppShell header={header}>
+    <AppShell header={header} role={viewerRole} shortcuts={canvasShortcuts(mayEdit)}>
       <Head title={space.name} />
 
       {/*

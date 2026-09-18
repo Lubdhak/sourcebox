@@ -33,11 +33,11 @@ import { cn } from '@/lib/utils';
  *     ✂  Remove the link wrapper, keeping the display text as plain text
  *
  * AUTO-LINK  (no user action needed)
- *   Handled by AutoLinkPlugin in plugins.ts. When the author types or pastes
- *   a recognisable URL (http/https/mailto) and then presses Space or Enter,
- *   it is automatically wrapped in a link. The display text defaults to the
- *   URL itself; clicking "Edit link" in the edit toolbar lets the author
- *   replace it with custom text.
+ *   Handled by the LinkPlugin input rules registered in plugins.ts. When the
+ *   author types a recognisable URL (http/https/mailto) and then presses Space
+ *   or Enter, or pastes one, it is automatically wrapped in a link. The display
+ *   text defaults to the URL itself; clicking "Edit link" in the edit toolbar
+ *   lets the author replace it with custom text.
  *
  * Mounted via `LinkPlugin.configure({ render: { afterEditable: LinkFloatingToolbar } })`
  * which places it inside the Plate context (editor + plugin store access)

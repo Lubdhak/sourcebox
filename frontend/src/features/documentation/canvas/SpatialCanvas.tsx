@@ -1167,10 +1167,13 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
    *
    *   Arrows        move the cursor to the next card, round the level and round again
    *   Shift+Arrows  nudge the card under the cursor one grid step
+   *   Space         open the panel for the card under the cursor, or shut it again
    *   Enter         go inside the card under the cursor
-   *   Escape        come back out, or abandon a half-drawn link first
+   *   Escape        shut the panel, come back out, or abandon a half-drawn link first
    *   n             add a node
-   *   F2            rename in place
+   *   r             rename in place
+   *
+   * The list is written down for the user in the navigation rail, in `canvasShortcuts`.
    *
    * Taken in the capture phase, which is what makes them ours. React Flow binds Enter,
    * Escape and the arrows on each card, and a card holds the focus as soon as it is
@@ -1215,6 +1218,15 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
           return
         }
 
+        // Then the open panel, for the same reason in a larger version: it describes one
+        // card on this level, and ascending with it open leaves it describing something
+        // that is no longer drawn. Escape peels one layer at a time.
+        if (selectedNodeId) {
+          cancelPendingSelect()
+          onSelectNode(null)
+          return
+        }
+
         cancelPendingSelect()
         holdFocus(container)
         // Land on the node just left, the way a file manager does: the user came out of
@@ -1236,6 +1248,24 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
       }
 
       /*
+       * Space looks inside the card without going inside it -- Quick Look, from the file
+       * manager the rest of these keys come from. It is the reading half of Enter: the
+       * panel shows what the card holds while the level, the cursor and the next
+       * keystroke all stay where they are.
+       *
+       * It toggles, because the key that opened the panel is the one a hand reaches for
+       * to be rid of it. Bare only, like `n`: Cmd+Space is Spotlight.
+       */
+      if (event.key === ' ' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (!active) return
+
+        claim()
+        cancelPendingSelect()
+        onSelectNode(selectedNodeId === active.id ? null : active.id)
+        return
+      }
+
+      /*
        * `n` for a new node, and only bare `n`: Cmd+N and Ctrl+N belong to the browser,
        * and a shortcut that opened a window sometimes and a node other times would be
        * worse than not having one.
@@ -1248,7 +1278,12 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
         return
       }
 
-      if (event.key === 'F2') {
+      /*
+       * `r` to rename, and only bare `r`: Cmd+R reloads the page. F2 is the file-manager
+       * default, but many keyboards do not have it, so a letter that means "rename" is
+       * the one a hand can actually press.
+       */
+      if (event.key === 'r' && !event.metaKey && !event.ctrlKey && !event.altKey) {
         if (!editable || !onRenameNode || !active) return
 
         const card = container.querySelector<HTMLElement>(
@@ -1296,7 +1331,9 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
       onDive,
       onMoveNode,
       onRenameNode,
+      onSelectNode,
       order,
+      selectedNodeId,
       stepCursor,
     ],
   )
@@ -1423,6 +1460,10 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
           focusable, and this flag does not touch it.
         */
         disableKeyboardA11y
+        // Space is ours, and React Flow's default use for it -- hold to pan by dragging
+        // -- is both undiscoverable and already covered by scrolling. Turned off rather
+        // than left to lose the race, so the key has one meaning.
+        panActivationKeyCode={null}
         /*
           The canvas moves itself to the keyboard cursor, in `revealNode`.
 

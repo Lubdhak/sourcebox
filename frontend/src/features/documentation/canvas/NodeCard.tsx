@@ -131,7 +131,7 @@ export const NodeCard = memo(function NodeCard({
    * cost a selection, a panel, a form and a save for one word. It cannot be double-click,
    * though -- that is how you go *inside* a node, and a gesture that sometimes navigates
    * and sometimes edits is worse than either one. So it is asked for explicitly: the
-   * toolbar button here, or F2 on the selected card, which arrives as RENAME_EVENT
+   * toolbar button here, or R on the selected card, which arrives as RENAME_EVENT
    * because React Flow's wrapper element holds the keyboard focus, not this markup.
    */
   const [renaming, setRenaming] = useState(false)
@@ -547,7 +547,7 @@ function TitleInput({
   /*
    * Focused and selected the instant the input exists, from a ref callback.
    *
-   * The rename is already a deliberate act -- a button press or F2 -- so nothing further
+   * The rename is already a deliberate act -- a button press or R -- so nothing further
    * should be required before the user can type. Landing the caret is not enough: without
    * the selection they would have to reach for the mouse again to clear a title they have
    * already decided to replace.
