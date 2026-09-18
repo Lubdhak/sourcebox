@@ -205,10 +205,8 @@ describe.skip('Yjs collaborative architecture (requires @platejs/yjs — remove 
     editorA.tf.setValue(initial)
     syncAtoB(docA, docB)
 
-    editorA.tf.addMarks(
-      { bold: true },
-      { at: { anchor: { path: [0, 0], offset: 0 }, focus: { path: [0, 0], offset: 5 } } },
-    )
+    editorA.tf.select({ anchor: { path: [0, 0], offset: 0 }, focus: { path: [0, 0], offset: 5 } })
+    editorA.tf.addMarks({ bold: true })
     editorB.tf.insertText(' again', { at: { path: [0, 0], offset: 11 } })
 
     syncBoth(docA, docB)

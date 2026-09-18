@@ -1,4 +1,53 @@
-# README
+# Sourcebox
+
+## Live & managed services
+
+- **Database (Neon - Managed)**  
+  `<add Neon project URL>`
+
+- **Frontend (Vercel)**  
+  `<add Vercel project URL>`
+
+- **Backend (Render)**  
+  `<add Render web service URL>`
+
+The deployment topology is:
+
+1. Neon provides the `sourcebox` PostgreSQL database and the derived
+   `sourcebox_queue` and `sourcebox_cable` databases.
+2. Vercel deploys `frontend/` and serves the Vite `manifest.json` and hashed assets.
+3. Render deploys the Rails web service and the separate Solid Queue worker from
+   `render.yaml`.
+
+Copy the provider-specific templates in `env_vars/` when configuring the services.
+These files contain placeholders only; real credentials belong in Neon, Vercel, and
+Render secret stores, not in the repository.
+
+### Provider configuration
+
+#### Neon
+
+Create a PostgreSQL project and database named `sourcebox`. Use the direct endpoint
+(the hostname without `-pooler`) in `POSTGRES_HOST`; the Render pre-deploy migration
+must be able to create the companion databases. Use the Neon role and password as
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_SSLMODE=require`.
+The Render pre-deploy command runs `bin/rails db:prepare`, which creates and migrates
+the primary, queue, and cable databases.
+
+#### Vercel
+
+Create a project with root directory `sourcebox/frontend`. The committed
+`frontend/vercel.json` runs the typecheck/build and exposes the manifest and assets
+with the CORS and cache headers required by Rails. Copy the resulting Vercel URL to
+Render's `ASSET_HOST`.
+
+#### Render
+
+Connect the repository using the Blueprint in `render.yaml`. Set `APP_URL` to the
+Render web-service URL and `ASSET_HOST` to the Vercel URL. Set the Neon and Google
+OAuth values in both the web and worker services. Register
+`<APP_URL>/users/auth/google_oauth2/callback` as an authorized Google OAuth redirect
+URI.
 
 This README would normally document whatever steps are necessary to get the
 application up and running.

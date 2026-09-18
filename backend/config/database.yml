@@ -26,6 +26,7 @@ default: &default
   port: <%= ENV.fetch("POSTGRES_PORT", 5432) %>
   username: <%= ENV.fetch("POSTGRES_USER", "sourcebox") %>
   password: <%= ENV.fetch("POSTGRES_PASSWORD", "sourcebox") %>
+  sslmode: <%= ENV.fetch("POSTGRES_SSLMODE", "prefer").inspect %>
 
 development:
   primary:

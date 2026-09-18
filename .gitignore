@@ -89,3 +89,4 @@ Desktop.ini
 !.vscode/settings.example.json
 backend/tmp/*
 # env_vars/
+env_vars/

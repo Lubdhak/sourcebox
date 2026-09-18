@@ -3,7 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import type { Layer } from '@/types'
+
+type DepthLayer = {
+  id: string
+  index: number
+  name: string
+  nodeCount: number
+}
 
 /**
  * The space's depth ladder, as a menu.
@@ -28,7 +34,7 @@ export function DepthMenu({
   onRename,
   onRemove,
 }: {
-  layers: Layer[]
+  layers: DepthLayer[]
   activeLayerId: string | null
   busy: boolean
   /** Filtering stays available to everyone; changing the ladder does not. */

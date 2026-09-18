@@ -1,0 +1,93 @@
+services:
+  - type: web
+    name: sourcebox-backend
+    runtime: docker
+    rootDir: sourcebox
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    dockerCommand: bin/rails server -b 0.0.0.0 -p 3000
+    healthCheckPath: /ready
+    plan: starter
+    envVars:
+      - key: RAILS_ENV
+        value: production
+      - key: RAILS_LOG_TO_STDOUT
+        value: "1"
+      - key: RAILS_LOG_LEVEL
+        value: info
+      - key: RAILS_ASSUME_SSL
+        value: "1"
+      - key: APP_URL
+        sync: false
+      - key: ASSET_HOST
+        sync: false
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_SSLMODE
+        value: require
+      - key: POSTGRES_DB
+        value: sourcebox
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: JOB_CONCURRENCY
+        value: "2"
+      - key: JOB_CONCURRENCY_CRITICAL
+        value: "1"
+    preDeployCommand: bin/rails db:prepare
+
+  - type: worker
+    name: sourcebox-worker
+    runtime: docker
+    rootDir: sourcebox
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    dockerCommand: bin/jobs
+    plan: starter
+    envVars:
+      - key: RAILS_ENV
+        value: production
+      - key: RAILS_LOG_TO_STDOUT
+        value: "1"
+      - key: RAILS_LOG_LEVEL
+        value: info
+      - key: RAILS_ASSUME_SSL
+        value: "1"
+      - key: APP_URL
+        sync: false
+      - key: ASSET_HOST
+        sync: false
+      - key: SECRET_KEY_BASE
+        fromService:
+          type: web
+          name: sourcebox-backend
+          envVarKey: SECRET_KEY_BASE
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_SSLMODE
+        value: require
+      - key: POSTGRES_DB
+        value: sourcebox
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: JOB_CONCURRENCY
+        value: "2"
+      - key: JOB_CONCURRENCY_CRITICAL
+        value: "1"
