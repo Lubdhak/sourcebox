@@ -8,11 +8,6 @@ module Types
           null: true,
           description: "The signed-in user, or null when there is no session."
 
-    field :dashboard, Types::DashboardType,
-          description: "Fetch one dashboard by id. Only the owner may read it." do
-      argument :id, ID, description: "The dashboard id."
-    end
-
     field :documentation_spaces, Types::DocumentationSpaceType.connection_type,
           description: "Documentation spaces the signed-in user owns or has been given access to."
 
@@ -58,15 +53,10 @@ module Types
       context[:current_user]
     end
 
-    # Authorization happens here, at the boundary, not in the frontend.
+    # Authorization happens at the boundary, not in the frontend, and a record belonging
+    # to somebody else raises the same NOT_FOUND as one that does not exist -- so none of
+    # these fields can be used to discover which ids are real.
     #
-    # `authorize_owner!` raises NOT_FOUND both when the dashboard does not exist and when
-    # it belongs to somebody else, so this field cannot be used to discover which ids are
-    # real.
-    def dashboard(id:)
-      authorize_owner!(Dashboard.find_by(id: id))
-    end
-
     # Scoped in SQL rather than filtered after loading, so there is no code path where
     # an inaccessible space is fetched and then discarded. A connection, so a user with
     # many spaces cannot ask for all of them at once.

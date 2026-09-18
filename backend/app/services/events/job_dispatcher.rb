@@ -18,7 +18,6 @@ module Events
   class JobDispatcher
     # Events that trigger background work, and the jobs each one starts.
     ROUTES = {
-      Names::DASHBOARD_UPDATED  => [ AuditDashboardChangeJob, AnalyticsEventJob ],
       Names::USER_CREATED       => [ NotificationJob, AnalyticsEventJob ],
       Names::USER_AUTHENTICATED => [ AnalyticsEventJob ],
       Names::OAUTH_SUCCESS      => [ AnalyticsEventJob ],

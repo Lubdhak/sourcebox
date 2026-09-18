@@ -5,14 +5,14 @@ class Schema < GraphQL::Schema
   mutation Types::MutationType
 
   # Batched loading for every field that asks for it. Without this, a query selecting
-  # `dashboards { user { ... } }` issues one query per dashboard.
+  # `documentationSpaces { owner { ... } }` issues one query per space.
   use GraphQL::Dataloader
 
   # --- Query safeguards --------------------------------------------------
   #
   # A GraphQL endpoint accepts arbitrary query shapes, so cost has to be bounded at the
   # schema rather than per resolver. Without these, one request can walk a cyclic graph
-  # (dashboard -> user -> dashboards -> user ...) and exhaust the database.
+  # (space -> node -> space -> node ...) and exhaust the database.
   max_depth 12
   max_complexity 300
 

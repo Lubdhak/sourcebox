@@ -20,7 +20,7 @@ class ContentBlock < ApplicationRecord
   # make every frontend addition a backend deploy.
   #
   # Keys are camelCase because that is how JSONB documents are stored throughout this
-  # application (see dashboards.ui_state) and it is the shape the client sends.
+  # application, and it is the shape the client sends.
   SHAPES = {
     "text"     => { required: { "text" => :string }, optional: {} },
     "markdown" => { required: { "markdown" => :string }, optional: {} },

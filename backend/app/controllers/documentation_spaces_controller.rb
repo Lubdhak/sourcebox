@@ -2,8 +2,8 @@
 
 # Renders the documentation pages via Inertia.
 #
-# The same division of labour as DashboardsController, and for the same reason: this
-# controller answers "which page, and what does it show on first paint". Every subsequent
+# The division of labour is the whole design: this controller answers "which page, and
+# what does it show on first paint". Every subsequent
 # read and every write -- selecting a node, dragging it, editing a block, searching --
 # goes to GraphQL, so the graph's business rules live in one place instead of being
 # duplicated between a controller and a resolver.

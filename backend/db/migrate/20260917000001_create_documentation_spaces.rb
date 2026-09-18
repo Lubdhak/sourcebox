@@ -19,7 +19,7 @@ class CreateDocumentationSpaces < ActiveRecord::Migration[8.1]
       t.text :description
 
       # Space-level preferences owned by the client (default layer, background grid,
-      # relationship colours). Bounded by the model, same as dashboards.ui_state.
+      # relationship colours). Bounded by the model, not by this column.
       t.jsonb :settings, null: false, default: {}
 
       t.timestamps

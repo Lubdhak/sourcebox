@@ -11,8 +11,8 @@ import { logger } from '@/lib/logger'
  * through that pipeline would mean fighting the abstraction.
  *
  * There is no Apollo or urql here either. Those exist mainly for their normalized caches,
- * and this application's client state is a single dashboard document that Rails already
- * owns. Adding a normalizing cache would create a second source of truth to keep in sync.
+ * and this application's client state is one graph document that Rails already owns.
+ * Adding a normalizing cache would create a second source of truth to keep in sync.
  * When you need cache normalization, subscriptions or fragment-level codegen, that is the
  * point to reach for a real client — not before.
  *

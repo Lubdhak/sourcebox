@@ -5,8 +5,6 @@ class User < ApplicationRecord
          :rememberable, :validatable, :trackable,
          :omniauthable, omniauth_providers: [ :google_oauth2 ]
 
-  has_many :dashboards, dependent: :destroy
-
   # Documentation ownership hangs off the existing account, and sharing hangs off
   # ownership: a space belongs to one user who cannot be removed from it, and everyone
   # else reaches it through a membership. Everything inside a space is authorized by
@@ -80,12 +78,6 @@ class User < ApplicationRecord
 
   def display_name
     name.presence || email.split("@").first
-  end
-
-  # The dashboard a user lands on. Created lazily so a brand-new account does not
-  # need a second write inside the OAuth callback.
-  def primary_dashboard
-    dashboards.order(:created_at).first || dashboards.create!
   end
 
   private

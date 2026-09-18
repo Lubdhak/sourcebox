@@ -4,8 +4,6 @@ module Types
   class MutationType < Types::BaseObject
     description "Root mutation."
 
-    field :update_dashboard_state, mutation: Mutations::UpdateDashboardState
-
     # --- Documentation graph ---------------------------------------------
     #
     # Every structural change to a space goes through exactly one of these, and each one

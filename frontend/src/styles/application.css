@@ -14,8 +14,8 @@
 @import "@fontsource-variable/geist";
 
 @theme {
-  /* Named so the dashboard can reference brand colours as bg-brand-500 etc. rather than
-     hard-coding hex values in components. */
+  /* Named so components can reference brand colours as bg-brand-500 etc. rather than
+     hard-coding hex values. */
   --color-brand-50: oklch(0.97 0.02 250);
   --color-brand-100: oklch(0.93 0.04 250);
   --color-brand-500: oklch(0.58 0.16 250);
@@ -29,6 +29,9 @@
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
   --animate-marquee: logo-marquee 42s linear infinite;
+  /* Slow enough to be felt rather than watched: it is depth behind the clock readout, not
+     a thing to look at. */
+  --animate-orbit: chrono-orbit 32s linear infinite;
 }
 
 @keyframes logo-marquee {
@@ -37,10 +40,17 @@
   }
 }
 
+@keyframes chrono-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /*
- * Dark mode is driven by an explicit class on <html> rather than
- * prefers-color-scheme, because theme is server-persisted state: the user's choice is
- * stored in dashboards.ui_state and must win over the OS setting.
+ * Dark mode is driven by an explicit class on <html> rather than prefers-color-scheme,
+ * because the choice is the user's rather than the operating system's: the logo in the
+ * navigation rail toggles it and the answer is remembered, so it must win over the OS
+ * setting rather than be overridden by it on the next visit.
  *
  * This redefines Tailwind's `dark:` variant to key off the class.
  */

@@ -373,7 +373,7 @@ app/frontend/
 │   └── application.tsx
 ├── Pages/
 │   ├── Auth/Login.tsx
-│   └── Dashboard/Show.tsx
+│   └── DocumentationSpace/Index.tsx
 ├── components/
 │   └── ErrorBoundary.tsx
 ├── lib/
@@ -539,8 +539,8 @@ Never log `event.detail.page.props` — page props contain user data (`task.md` 
 Each verb returns a `Promise<TResponse>`. It also has **built-in optimistic support**:
 
 ```ts
-const form = useHttp('patch', '/dashboards/1/preferences', { theme: 'dark' })
-await form.optimistic((current) => ({ theme: current.theme })).submit()
+const form = useHttp('patch', '/spaces/1/preferences', { layout: 'grid' })
+await form.optimistic((current) => ({ layout: current.layout })).submit()
 ```
 
 `router.optimistic(...)` does the same for page-prop visits, with automatic rollback on failure.
@@ -553,7 +553,7 @@ await form.optimistic((current) => ({ theme: current.theme })).submit()
   server-owned side effects that are not part of client state: sign-out, a webhook retry, a
   one-off form POST.
 - **`lib/graphql.ts`** — talks to `POST /graphql` for all *client-state* reads and writes:
-  dashboard queries, mutations, filtering, pagination, optimistic state. It returns typed data your
+  graph queries, mutations, filtering, pagination, optimistic state. It returns typed data your
   React state owns, and never replaces page props.
 
 The dividing line: if the server should decide what the page *is*, use Inertia. If the client owns
@@ -743,11 +743,11 @@ app/graphql/
 │   ├── query_type.rb
 │   ├── mutation_type.rb
 │   ├── user_type.rb
-│   ├── dashboard_type.rb
+│   ├── documentation_space_type.rb
 │   └── page_info_type.rb
 ├── mutations/
 │   ├── base_mutation.rb
-│   └── update_dashboard_state.rb
+│   └── create_documentation_space.rb
 ├── loaders/
 │   ├── record_loader.rb
 │   └── association_loader.rb
@@ -1052,8 +1052,8 @@ nd 'npm ls redis ioredis 2>&1 | grep -c empty'
 
 ### 8.1 Application migrations
 
-Generate in this order — ordering matters because the `dashboards` foreign key requires `users` to
-exist first, and Devise's `users` table must exist before you add OAuth columns to it.
+Generate in this order — ordering matters because the `documentation_spaces` foreign key requires
+`users` to exist first, and Devise's `users` table must exist before you add OAuth columns to it.
 
 ```bash
 # 1. Devise already generated the users table migration in Phase 5.1.
@@ -1062,8 +1062,8 @@ exist first, and Devise's `users` table must exist before you add OAuth columns 
 rb 'bin/rails generate migration AddOmniauthToUsers \
       provider:string uid:string avatar_url:string name:string'
 
-# 3. Dashboards with JSONB ui_state (task.md §15)
-rb 'bin/rails generate migration CreateDashboards'
+# 3. Documentation spaces, with JSONB settings (task.md §15)
+rb 'bin/rails generate migration CreateDocumentationSpaces'
 ```
 
 Edit the OAuth migration to add the constraints `task.md` §15 requires:
@@ -1086,34 +1086,52 @@ class AddOmniauthToUsers < ActiveRecord::Migration[8.1]
 end
 ```
 
-And the dashboards migration:
+And the documentation spaces migration:
 
 ```ruby
-class CreateDashboards < ActiveRecord::Migration[8.1]
+class CreateDocumentationSpaces < ActiveRecord::Migration[8.1]
   def change
-    create_table :dashboards do |t|
+    create_table :documentation_spaces do |t|
+      # A space is the authorization boundary for the whole graph beneath it, and this is
+      # the only place ownership is recorded — so it cannot be null.
       t.references :user, null: false, foreign_key: true, index: true
-      t.jsonb :ui_state, null: false, default: {}
+
+      # Spaces are addressed in URLs. Sequential ids would let anyone walk the keyspace
+      # to count spaces and probe for other tenants'.
+      t.uuid :public_id, null: false, default: -> { "gen_random_uuid()" }
+
+      t.string :name, null: false
+      t.string :slug, null: false
+      t.text :description
+
+      # Space-level preferences owned by the client, bounded by the model.
+      t.jsonb :settings, null: false, default: {}
+
       t.timestamps
     end
 
+    add_index :documentation_spaces, :public_id, unique: true
+
+    # Unique per owner, not globally: two users may both have a "Payment Platform".
+    add_index :documentation_spaces, [:user_id, :slug], unique: true
+
     # Guard the JSONB shape at the database boundary (task.md §48).
-    add_check_constraint :dashboards,
-                         "jsonb_typeof(ui_state) = 'object'",
-                         name: "dashboards_ui_state_is_object"
+    add_check_constraint :documentation_spaces,
+                         "jsonb_typeof(settings) = 'object'",
+                         name: "documentation_spaces_settings_is_object"
   end
 end
 ```
 
 #### On JSONB GIN indexes
 
-Do **not** add a GIN index on `ui_state` yet. A GIN index is worth it only when you filter or search
-*inside* the JSONB across many rows — `WHERE ui_state @> '{"theme":"dark"}'` or
-`ui_state ? 'widgets'`. In this schema every read is `WHERE user_id = ? ` or by primary key, so the
-`user_id` btree index answers every query and a GIN index would only add write amplification on
-every dashboard save. Add `CREATE INDEX ... USING gin (ui_state jsonb_path_ops)` the day you start
-querying by JSONB content, and prefer `jsonb_path_ops` if you only ever use containment (`@>`),
-since it is smaller and faster than the default `jsonb_ops`.
+Do **not** add a GIN index on `settings` yet. A GIN index is worth it only when you filter or search
+*inside* the JSONB across many rows — `WHERE settings @> '{"layout":"grid"}'` or
+`settings ? 'grid'`. In this schema every read is `WHERE user_id = ?`, by `public_id`, or by primary
+key, so the btree indexes answer every query and a GIN index would only add write amplification on
+every save. Add `CREATE INDEX ... USING gin (settings jsonb_path_ops)` the day you start querying by
+JSONB content, and prefer `jsonb_path_ops` if you only ever use containment (`@>`), since it is
+smaller and faster than the default `jsonb_ops`.
 
 ### 8.2 Create and migrate
 
@@ -1146,7 +1164,7 @@ docker compose run --rm web bin/rails db:schema:load:queue # loads queue_schema.
 
 ```bash
 docker compose exec postgres psql -U sourcebox -d sourcebox_development \
-  -c '\d dashboards' -c 'select version from schema_migrations order by version;'
+  -c '\d documentation_spaces' -c 'select version from schema_migrations order by version;'
 
 docker compose exec postgres psql -U sourcebox -d sourcebox_development_queue \
   -c '\dt solid_queue_*'
@@ -1411,8 +1429,8 @@ Confirm the safeguards are live:
 ```bash
 # Depth limit (task.md §6)
 curl -fsS http://localhost:3000/graphql -H 'Content-Type: application/json' \
-  -d '{"query":"{ dashboard(id:\"1\"){ user { dashboards { user { dashboards { user { id }}}}}}}"}'
-# => "Query has depth of N, which exceeds max depth of 12"
+  -d '{"query":"{ node(id:\"1\") { parents { parents { parents { parents { parents { parents { parents { parents { parents { parents { parents { parents { id } } } } } } } } } } } } } }"}'
+# => "Query has depth of 14, which exceeds max depth of 12"
 
 # Introspection policy in production
 RAILS_ENV=production curl -fsS http://localhost:3000/graphql \
@@ -1451,15 +1469,15 @@ docker compose logs web | tail -5 | python3 -c 'import json,sys; [json.loads(l) 
 1. Visit <http://localhost:3000/login>.
 2. Click **Continue with Google** — the browser should do a **full page navigation** (watch the
    Network tab: a document request, not an XHR) to `accounts.google.com`.
-3. Approve consent. You land on `/dashboard` with your Google avatar, name, and email.
-4. Toggle something on the dashboard — the change should render instantly (optimistic), then a
-   `POST /graphql` confirms it.
+3. Approve consent. You land on `/spaces` with your Google avatar, name, and email in the rail.
+4. Create a space, then drag a node on its canvas — the change should render instantly
+   (optimistic), then a `POST /graphql` confirms it.
 5. Confirm persistence:
    ```bash
    docker compose exec postgres psql -U sourcebox -d sourcebox_development \
-     -c 'select id, user_id, ui_state from dashboards;'
+     -c 'select id, user_id, name, settings from documentation_spaces;'
    ```
-6. Confirm rollback: stop the web container mid-toggle, or temporarily raise in the mutation, and
+6. Confirm rollback: stop the web container mid-drag, or temporarily raise in the mutation, and
    verify the UI reverts to its previous state instead of staying wrong.
 
 ---

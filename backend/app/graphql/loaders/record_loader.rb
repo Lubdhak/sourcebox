@@ -3,13 +3,13 @@
 module Loaders
   # Batches primary-key (or unique-column) lookups into a single query.
   #
-  # Without batching, a list of N dashboards each exposing `user` issues N queries --
-  # the classic GraphQL N+1. GraphQL::Dataloader collects every `.load(...)` requested
-  # during a single execution pass and calls `fetch` once with all the keys.
+  # Without batching, a list of N spaces each exposing `owner` issues N queries -- the
+  # classic GraphQL N+1. GraphQL::Dataloader collects every `.load(...)` requested during
+  # a single execution pass and calls `fetch` once with all the keys.
   #
-  #   dashboard(1) -> user_id 7 -.
-  #   dashboard(2) -> user_id 7  |--> SELECT * FROM users WHERE id IN (7, 9)
-  #   dashboard(3) -> user_id 9 -'
+  #   space(1) -> user_id 7 -.
+  #   space(2) -> user_id 7  |--> SELECT * FROM users WHERE id IN (7, 9)
+  #   space(3) -> user_id 9 -'
   #
   # Usage from a type:
   #

@@ -13,8 +13,8 @@ import type { DocumentationSpace, DocumentationSpaceIndexPageProps, SpaceMembers
 /**
  * The list of documentation spaces.
  *
- * Reading is an Inertia page and creating is a GraphQL mutation, which is the same split
- * the dashboard makes: navigation and first paint belong to Inertia, and a fine-grained
+ * Reading is an Inertia page and creating is a GraphQL mutation, which is the split the
+ * whole app makes: navigation and first paint belong to Inertia, and a fine-grained
  * write that should not push a history entry belongs to GraphQL. The visit after a
  * successful create is deliberate -- the user asked to make a space, so taking them into
  * it is the expected outcome.

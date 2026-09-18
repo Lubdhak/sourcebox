@@ -38,7 +38,7 @@ module Users
 
         # A plain redirect, not an Inertia response: the browser arrives here from
         # Google as a top-level navigation, so there is no Inertia context to preserve.
-        redirect_to dashboard_path
+        redirect_to documentation_spaces_path
       else
         report_failure("record_invalid", user.errors.full_messages.first)
         redirect_to login_path

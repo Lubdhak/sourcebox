@@ -43,7 +43,7 @@ InertiaRails.configure do |config|
   end
 
   # Rails' own deep_transform_keys-based camelization is not applied automatically; props are
-  # written in the shape the frontend expects (see DashboardsController#serialize_ui_state).
+  # written in the shape the frontend expects (see DocumentationSpacesController).
   # Left off deliberately so the wire format is explicit and greppable rather than implicit.
   config.deep_merge_shared_data = false
 end

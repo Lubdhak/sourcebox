@@ -22,7 +22,7 @@ class AnalyticsEventJob < ApplicationJob
       "analytics.tracked",
       analytics_event: event_name,
       user_id: payload["user_id"],
-      dashboard_id: payload["dashboard_id"],
+      space_id: payload["space_id"],
       request_id: request_id,
       occurred_at: Time.current.iso8601
     )

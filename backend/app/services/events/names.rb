@@ -10,8 +10,6 @@ module Events
     USER_AUTHENTICATED = "user.authenticated"
     USER_CREATED       = "user.created"
 
-    DASHBOARD_UPDATED  = "dashboard.updated"
-
     # The documentation graph's mutation vocabulary.
     #
     # Every structural change to a space passes through exactly one of these, which is

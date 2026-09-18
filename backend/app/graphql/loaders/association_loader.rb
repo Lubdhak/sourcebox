@@ -6,14 +6,14 @@ module Loaders
   # `RecordLoader` batches lookups by key; this batches *associations*, which is what you
   # need for has_many / belongs_to traversal:
   #
-  #   user(1).dashboards -.
-  #   user(2).dashboards  |--> one preload for [user1, user2, user3]
-  #   user(3).dashboards -'
+  #   user(1).documentation_spaces -.
+  #   user(2).documentation_spaces  |--> one preload for [user1, user2, user3]
+  #   user(3).documentation_spaces -'
   #
   # Usage from a type:
   #
-  #   def dashboards
-  #     dataloader.with(Loaders::AssociationLoader, User, :dashboards).load(object)
+  #   def documentation_spaces
+  #     dataloader.with(Loaders::AssociationLoader, User, :documentation_spaces).load(object)
   #   end
   class AssociationLoader < GraphQL::Dataloader::Source
     def initialize(model, association_name)

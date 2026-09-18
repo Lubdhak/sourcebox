@@ -9,7 +9,7 @@ import type { DocumentationNode, NodeRelationship, SpaceGraph, SpatialPosition }
 /**
  * Owns the client's copy of one space's graph.
  *
- * The same contract the dashboard page established, applied to a much larger document:
+ * The contract every page here follows, applied to the largest document in the app:
  *
  *   Inertia  -- seeds the first paint. The canvas draws real nodes immediately.
  *   GraphQL  -- the authority. Refetched on mount and after every mutation.

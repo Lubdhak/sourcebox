@@ -18,9 +18,9 @@ import type {
 /**
  * Every documentation operation, in one place.
  *
- * The dashboard page keeps its two operations inline, which is right for two. A canvas
- * has ten, several pages use the same ones, and the tests need to assert which one was
- * sent -- so they live here, as named exports, with a typed function per operation. The
+ * A page with one or two operations can keep them inline. A canvas has ten, several pages
+ * use the same ones, and the tests need to assert which one was sent -- so they live here,
+ * as named exports, with a typed function per operation. The
  * transport is still `lib/graphql.ts`; nothing here knows about fetch, CSRF or errors.
  */
 

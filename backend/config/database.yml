@@ -2,7 +2,7 @@
 #
 # Three databases on ONE PostgreSQL server:
 #
-#   primary -> application data (users, dashboards, the documentation graph)
+#   primary -> application data (users, the documentation graph)
 #   queue   -> Solid Queue's 10 solid_queue_* tables
 #   cable   -> Solid Cable's message table, which is pure churn: every realtime message
 #              in a collaborative session lands there and is trimmed away again

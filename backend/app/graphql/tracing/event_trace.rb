@@ -6,7 +6,7 @@ module Tracing
   # Installed with `trace_with` (the modern API; the old `instrument(...)` hooks were
   # removed). One event per operation with timing, operation type, and error count:
   #
-  #   { "event": "graphql.request", "operation_name": "Dashboard",
+  #   { "event": "graphql.request", "operation_name": "DocumentationSpace",
   #     "operation_type": "query", "duration_ms": 18, "status": "success" }
   #
   # Mutations additionally emit graphql.mutation so write traffic can be alerted on

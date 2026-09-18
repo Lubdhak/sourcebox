@@ -17,9 +17,8 @@ class DocumentationSpace < ApplicationRecord
   has_many :space_memberships, dependent: :destroy
   has_many :members, through: :space_memberships, source: :user
 
-  # Bounds on the loose part of the document, for the same reason Dashboard has them:
-  # this is client-supplied JSON reaching storage, and without a cap it is an unbounded
-  # write primitive.
+  # Bounds on the loose part of the document: this is client-supplied JSON reaching
+  # storage, and without a cap it is an unbounded write primitive.
   MAX_SERIALIZED_SETTINGS_BYTES = 16.kilobytes
 
   validates :name, presence: true, length: { maximum: 120 }

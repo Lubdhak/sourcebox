@@ -1,5 +1,5 @@
 import { Head, usePage } from '@inertiajs/react'
-import { AnalogClock } from '@/components/AnalogClock'
+import { ChronoClock } from '@/components/ChronoClock'
 import { LogoCarousel } from '@/components/LogoCarousel'
 import { readCsrfToken } from '@/lib/csrf'
 import type { InertiaSharedProps, LoginPageProps } from '@/types'
@@ -32,7 +32,7 @@ export default function Login({ googleAuthPath, allowPasswordSignIn, error }: Lo
 
         <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6">
           <p className="mb-8 text-xs font-bold uppercase tracking-[0.28em] text-white/80">Sourcebox</p>
-          <AnalogClock className="w-[min(100%,18rem)] sm:w-[22rem] md:w-[24rem] lg:w-[28rem]" />
+          <ChronoClock className="w-[min(100%,18rem)] sm:w-[22rem] md:w-[24rem] lg:w-[28rem]" />
           <p className="mt-8 max-w-xs text-center text-sm font-light leading-relaxed text-white/75">
             Visualize the work. Sign in to pick up where you left off.
           </p>

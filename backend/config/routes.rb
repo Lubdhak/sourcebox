@@ -25,8 +25,7 @@ Rails.application.routes.draw do
 
   # --- Inertia pages ----------------------------------------------------
   # Server-driven navigation. These render components, not JSON.
-  resource :dashboard, only: [ :show ], controller: "dashboards"
-
+  #
   # Documentation spaces. Only the two pages -- a list and a canvas -- because every
   # mutation of the graph is a GraphQL operation, not a REST route.
   #
@@ -44,5 +43,8 @@ Rails.application.routes.draw do
   get "/health", to: "health#show"
   get "/ready",  to: "health#ready"
 
-  root to: redirect("/dashboard")
+  # The spaces list is the front door: it is the only thing a signed-in account has that
+  # is worth landing on, and an account with no spaces gets the page that offers to make
+  # one.
+  root to: redirect("/spaces")
 end

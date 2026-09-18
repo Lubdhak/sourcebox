@@ -10,20 +10,18 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_18_000003) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_18_000004) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "audit_logs", force: :cascade do |t|
     t.jsonb "changed_keys", default: [], null: false
     t.datetime "created_at", null: false
-    t.bigint "dashboard_id"
     t.string "event_name", null: false
     t.datetime "occurred_at", null: false
     t.string "request_id"
     t.datetime "updated_at", null: false
     t.bigint "user_id"
-    t.index ["dashboard_id", "occurred_at"], name: "index_audit_logs_on_dashboard_id_and_occurred_at"
     t.index ["request_id"], name: "index_audit_logs_on_request_id"
   end
 
@@ -44,7 +42,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000003) do
     t.index ["documentation_space_id", "status", "created_at"], name: "index_change_proposals_on_space_and_status"
     t.check_constraint "(status::text = 'pending'::text) = (decided_at IS NULL)", name: "change_proposals_decision_has_a_time"
     t.check_constraint "jsonb_typeof(payload) = 'object'::text", name: "change_proposals_payload_is_object"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'approved'::character varying::text, 'rejected'::character varying::text, 'failed'::character varying::text])", name: "change_proposals_status_is_known"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'approved'::character varying, 'rejected'::character varying, 'failed'::character varying]::text[])", name: "change_proposals_status_is_known"
   end
 
   create_table "content_blocks", force: :cascade do |t|
@@ -78,15 +76,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000003) do
     t.index ["actor_id"], name: "index_crdt_updates_on_actor_id"
     t.index ["crdt_document_id", "id"], name: "index_crdt_updates_on_crdt_document_id_and_id"
     t.index ["crdt_document_id"], name: "index_crdt_updates_on_crdt_document_id"
-  end
-
-  create_table "dashboards", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.jsonb "ui_state", default: {}, null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.index ["user_id"], name: "index_dashboards_on_user_id"
-    t.check_constraint "jsonb_typeof(ui_state) = 'object'::text", name: "dashboards_ui_state_is_object"
   end
 
   create_table "documentation_spaces", force: :cascade do |t|
@@ -305,7 +294,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000003) do
     t.index ["documentation_space_id", "user_id"], name: "index_space_memberships_on_space_and_user", unique: true, where: "(user_id IS NOT NULL)"
     t.index ["user_id"], name: "index_space_memberships_on_user_id"
     t.check_constraint "(user_id IS NOT NULL) <> (invited_email IS NOT NULL)", name: "space_memberships_identifies_exactly_one_person"
-    t.check_constraint "role::text = ANY (ARRAY['viewer'::character varying::text, 'contributor'::character varying::text, 'editor'::character varying::text, 'admin'::character varying::text])", name: "space_memberships_role_is_known"
+    t.check_constraint "role::text = ANY (ARRAY['viewer'::character varying, 'contributor'::character varying, 'editor'::character varying, 'admin'::character varying]::text[])", name: "space_memberships_role_is_known"
   end
 
   create_table "users", force: :cascade do |t|
@@ -337,7 +326,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000003) do
   add_foreign_key "crdt_documents", "nodes", on_delete: :cascade
   add_foreign_key "crdt_updates", "crdt_documents", on_delete: :cascade
   add_foreign_key "crdt_updates", "users", column: "actor_id", on_delete: :nullify
-  add_foreign_key "dashboards", "users"
   add_foreign_key "documentation_spaces", "users"
   add_foreign_key "node_relationships", "documentation_spaces"
   add_foreign_key "node_relationships", "nodes", column: "source_node_id"
