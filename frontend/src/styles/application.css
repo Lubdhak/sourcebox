@@ -239,6 +239,55 @@
   }
 
   /*
+   * Arrival, for a page opened at `?node=…&block=…`.
+   *
+   * A flash on the block itself rather than a scroll position alone, because
+   * `scrollIntoView` puts the right paragraph in the middle of the panel and stops --
+   * indistinguishable, on a page with several similar-looking paragraphs, from having
+   * landed one above or below the one actually meant. The colour fades out rather than
+   * staying, because this says "you have arrived", not "this paragraph is different from
+   * the others": a highlight that never left would start meaning the second thing.
+   *
+   * Kept outside `.documentation-markdown`'s own rules because it is applied to the
+   * wrapper `MarkdownBlock` adds around each block, not to the block's own markup -- see
+   * that component for why the wrapper exists at all.
+   */
+  .block-highlight {
+    animation: block-highlight-fade 2.2s ease-out;
+    border-radius: calc(var(--radius) * 0.5);
+  }
+
+  @keyframes block-highlight-fade {
+    0%, 40% {
+      background: var(--color-brand-100);
+    }
+    100% {
+      background: transparent;
+    }
+  }
+
+  .dark .block-highlight {
+    animation-name: block-highlight-fade-dark;
+  }
+
+  @keyframes block-highlight-fade-dark {
+    0%, 40% {
+      background: color-mix(in oklch, var(--color-brand-500) 30%, transparent);
+    }
+    100% {
+      background: transparent;
+    }
+  }
+
+  /* The moment after a click on a block's link button: the same icon, read as done
+     rather than as an offer, for as long as `copyLinkButton`'s own timeout keeps the
+     class applied. */
+  .copy-block-link--copied {
+    color: var(--color-brand-600);
+    opacity: 1 !important;
+  }
+
+  /*
    * A highlighted code block: a gutter of line numbers and the source beside it.
    *
    * Not nested inside `.documentation-markdown`, because a typed code block uses the same

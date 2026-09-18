@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, ChevronDown, Link2, Pencil, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkdownBlock } from '@/features/documentation/blocks/MarkdownBlock'
@@ -47,6 +47,7 @@ export function InspectorPanel({
   levelNodes = [],
   editable = true,
   back = null,
+  initialBlockIndex = null,
   onClose,
   onSelectNode,
   onDeleteNode,
@@ -59,6 +60,12 @@ export function InspectorPanel({
   levelNodes?: DocumentationNode[]
   editable?: boolean
   back?: { title: string; onBack: () => void } | null
+  /**
+   * Which paragraph of this page a link asked to land on. Read once, by `PageView`, then
+   * forgotten -- see `Show.tsx`'s `linkedBlock` for where it comes from and why it is not
+   * kept in sync afterward.
+   */
+  initialBlockIndex?: number | null
   onClose: () => void
   onSelectNode: (nodeId: string) => void
   onDeleteNode: (nodeId: string) => void
@@ -167,21 +174,6 @@ export function InspectorPanel({
             </span>
           ) : null}
 
-          {/*
-            Who else has this page open, right now, in the same round photo the header
-            bar uses -- so a face here and a face there are recognisably the same fact
-            read from two distances. Placed on the same line as Edit rather than beside
-            the title: the title row is about *this node*, and this row is already about
-            who is looking at it, next to the control they might collide with.
-          */}
-          {page.viewers.length > 0 ? (
-            <div className="flex -space-x-1" aria-label={`${page.viewers.length} other ${page.viewers.length === 1 ? 'person is' : 'people are'} viewing this page`}>
-              {page.viewers.map((viewer) => (
-                <PersonAvatar key={viewer.id} actor={viewer} size="xs" />
-              ))}
-            </div>
-          ) : null}
-
           {editable && !editing ? (
             <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setEditing(true)}>
               <Pencil className="size-3" />
@@ -195,6 +187,24 @@ export function InspectorPanel({
           editable={editable}
           onSave={(summary) => void saveNodeFields({ summary })}
         />
+
+        {/*
+          Who else has this page open, right now, in the same round photo the header bar
+          uses -- so a face here and a face there are recognisably the same fact read from
+          two distances. Under the summary rather than up on the title row: the title and
+          the summary are both *about the node*, and this is the last line of that before
+          the page itself starts, not a fact competing with Edit for space on one row.
+        */}
+        {page.viewers.length > 0 ? (
+          <div
+            className="flex -space-x-1"
+            aria-label={`${page.viewers.length} other ${page.viewers.length === 1 ? 'person is' : 'people are'} viewing this page`}
+          >
+            {page.viewers.map((viewer) => (
+              <PersonAvatar key={viewer.id} actor={viewer} size="xs" />
+            ))}
+          </div>
+        ) : null}
       </header>
 
       {error ? <Banner message={error} onDismiss={dismissError} /> : null}
@@ -209,8 +219,10 @@ export function InspectorPanel({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <PageView
+            nodeId={nodeId}
             markdown={page.value}
             editable={editable}
+            highlightBlockIndex={initialBlockIndex}
             onSelectNode={onSelectNode}
             onEdit={() => setEditing(true)}
           />
@@ -286,16 +298,56 @@ export function InspectorPanel({
  * page visibly changed shape the moment somebody clicked into it.
  */
 function PageView({
+  nodeId,
   markdown,
   editable,
+  highlightBlockIndex = null,
   onSelectNode,
   onEdit,
 }: {
+  nodeId: string
   markdown: string
   editable: boolean
+  /** Land on and flash this paragraph once the page has rendered. See `Show.tsx`'s
+   * `linkedBlock` for where the number comes from. */
+  highlightBlockIndex?: number | null
   onSelectNode: (nodeId: string) => void
   onEdit: () => void
 }) {
+  const container = useRef<HTMLDivElement>(null)
+
+  /*
+   * Runs once per arrival, not once per render: `markdown` changes on every keystroke a
+   * collaborator makes, and re-scrolling a reader to a fixed paragraph every time someone
+   * else typed a word would make the page unusable to read while it was being edited.
+   *
+   * Waiting on `markdown` at all, rather than firing straight from `Show.tsx`, is what
+   * makes the target exist to find: this effect runs after the paragraph in question has
+   * actually been rendered, where one keyed off page load alone would run before
+   * `MarkdownBlock` had produced it.
+   */
+  const landed = useRef(false)
+
+  useEffect(() => {
+    if (landed.current || highlightBlockIndex === null) return
+
+    const target = container.current?.querySelector<HTMLElement>(
+      `.documentation-markdown > [data-block-index="${highlightBlockIndex}"]`,
+    )
+    if (!target) return
+
+    landed.current = true
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+    // A flash rather than a standing highlight: this marks *arrival*, the way a browser's
+    // own find-in-page does, not "this paragraph is special" -- which a highlight that
+    // never went away would end up claiming.
+    target.classList.add('block-highlight')
+    const timer = window.setTimeout(() => target.classList.remove('block-highlight'), 2200)
+
+    return () => window.clearTimeout(timer)
+  }, [markdown, highlightBlockIndex])
+
   if (!markdown.trim()) {
     return (
       <div className="px-6 py-6">
@@ -321,8 +373,8 @@ function PageView({
     // document does, and the cost was that dragging across a paragraph to copy it -- a
     // click, as far as the DOM is concerned -- swapped the text for an editing surface
     // mid-selection. Reading is the common case; editing starts from the Edit button.
-    <div className="px-6 py-4">
-      <MarkdownBlock data={{ markdown }} onNavigateToNode={onSelectNode} />
+    <div ref={container} className="px-6 py-4">
+      <MarkdownBlock nodeId={nodeId} data={{ markdown }} onNavigateToNode={onSelectNode} />
     </div>
   )
 }

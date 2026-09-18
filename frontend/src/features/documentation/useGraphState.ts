@@ -37,6 +37,8 @@ interface UseGraphStateOptions {
   spaceId: string
   initialGraph: SpaceGraph
   initialFocusNodeId?: string | null
+  /** Opens the inspector on this node as soon as the level containing it has loaded. */
+  initialSelectedNodeId?: string | null
 }
 
 /**
@@ -103,6 +105,7 @@ export function useGraphState({
   spaceId,
   initialGraph,
   initialFocusNodeId = null,
+  initialSelectedNodeId = null,
 }: UseGraphStateOptions): GraphStateApi {
   const [graph, setGraph] = useState<SpaceGraph>(initialGraph)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(initialFocusNodeId)
@@ -119,7 +122,7 @@ export function useGraphState({
    */
   const focusNodeIdRef = useRef(focusNodeId)
   focusNodeIdRef.current = focusNodeId
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialSelectedNodeId)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -713,7 +716,29 @@ export function useGraphState({
     [focusNodeId, focusOn, scheduleRemoteRefresh, selectedNodeId],
   )
 
-  const selectNode = useCallback((nodeId: string | null) => setSelectedNodeId(nodeId), [])
+  /**
+   * Opens or closes the inspector, and writes which node it is open on into the URL.
+   *
+   * The same reasoning `focusOn` gives for `focus` applies here one level down: a
+   * selection is a place too, just a page rather than a level, and every path that
+   * selects a node -- the canvas, search, a mention followed inside the panel -- goes
+   * through here, so all of them produce a link that reopens on the right page instead of
+   * only the right level.
+   *
+   * `block` is deliberately left alone. It names a paragraph inside the page this URL
+   * points at, and a selection made by clicking around is not a claim about which
+   * paragraph matters -- only a link copied from inside a page is that specific, and nulls
+   * out on the next selection, `focus` and `node` come from *how you got here*.
+   */
+  const selectNode = useCallback((nodeId: string | null) => {
+    setSelectedNodeId(nodeId)
+
+    const url = new URL(window.location.href)
+    if (nodeId) url.searchParams.set('node', nodeId)
+    else url.searchParams.delete('node')
+    url.searchParams.delete('block')
+    window.history.replaceState(window.history.state, '', url)
+  }, [])
   const dismissError = useCallback(() => setError(null), [])
 
   return useMemo(

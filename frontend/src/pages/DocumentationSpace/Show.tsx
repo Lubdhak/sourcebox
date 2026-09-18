@@ -35,6 +35,31 @@ function initialFocusFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get('focus')
 }
 
+function initialSelectedNodeIdFromUrl(): string | null {
+  if (typeof window === 'undefined') return null
+
+  return new URLSearchParams(window.location.search).get('node')
+}
+
+/**
+ * Which paragraph of the linked node's page a `block` in the URL points at, or null when
+ * there is no such link -- either because the parameter is absent, because it did not
+ * parse, or because there is no `node` for it to describe a page of. A `block` with no
+ * `node` is a copied link with half its address torn off, not a request to guess.
+ */
+function initialBlockIndexFromUrl(): number | null {
+  if (typeof window === 'undefined') return null
+
+  const params = new URLSearchParams(window.location.search)
+  if (!params.get('node')) return null
+
+  const raw = params.get('block')
+  if (raw === null) return null
+
+  const index = Number(raw)
+  return Number.isInteger(index) && index >= 0 ? index : null
+}
+
 export default function DocumentationSpaceShow({
   space,
   initialGraph,
@@ -49,10 +74,22 @@ export default function DocumentationSpaceShow({
   // is not a feature.
   const mayEdit = canEdit(viewerRole)
 
+  /*
+   * The address a link to this page arrived with, read once and held rather than
+   * re-derived: `selectNode` goes on rewriting `node` and `block` as the user clicks
+   * around (see its own comment for why), and by the second selection `window.location`
+   * would already have forgotten which paragraph the page was opened to.
+   */
+  const [linkedBlock] = useState(() => ({
+    nodeId: initialSelectedNodeIdFromUrl(),
+    blockIndex: initialBlockIndexFromUrl(),
+  }))
+
   const graph = useGraphState({
     spaceId: space.id,
     initialGraph,
     initialFocusNodeId: initialFocusFromUrl(),
+    initialSelectedNodeId: linkedBlock.nodeId,
   })
 
   // The socket hands structural messages straight to the graph state. This page does not
@@ -345,6 +382,9 @@ export default function DocumentationSpaceShow({
       spaceId={space.id}
       levelNodes={graph.nodes}
       editable={mayEdit}
+      // Only for the node the link actually named -- selecting a different one, even
+      // before this one has been left, is not the arrival this paragraph was promised to.
+      initialBlockIndex={graph.selectedNodeId === linkedBlock.nodeId ? linkedBlock.blockIndex : null}
       back={history.back ? { title: history.back.title, onBack: goBack } : null}
       onClose={() => {
         selectNode(null)
