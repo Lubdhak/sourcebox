@@ -1,6 +1,7 @@
 import { Handle, Position } from '@xyflow/react'
-import { ArrowUpFromLine, Copy, CornerDownRight, Link2, Pencil, TextCursorInput, Trash2 } from 'lucide-react'
+import { ArrowUpFromLine, Copy, CornerDownRight, Eye, FileText, Link2, Pencil, TextCursorInput, Trash2 } from 'lucide-react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { DISCONNECTED_HINT, DisconnectedIcon } from '@/features/documentation/disconnected'
 import { cn } from '@/lib/utils'
 import type { DocumentationNode, NodeParent } from '@/types'
 
@@ -10,7 +11,7 @@ export interface NodeCardActions {
   onDelete: (nodeId: string) => void
   onStartLink: (nodeId: string) => void
   onRename: (nodeId: string, title: string) => void
-  /** Go to the level a containing node lives on, with that node selected. */
+  /** Go to the level a containing node lives on. Navigation only: nothing is selected. */
   onGoUp: (parent: NodeParent) => void
   onDuplicate: (nodeId: string) => void
 }
@@ -43,6 +44,15 @@ export interface NodeCardData extends Record<string, unknown> {
   /** Names of collaborators who are on this node right now. */
   presentEditors: string[]
   /**
+   * Names of everyone reading this node right now, including inside it.
+   *
+   * A superset of `presentEditors`: those are the people whose marker belongs *on* this
+   * card, while this is the audience figure -- the one number that says whether a node is
+   * being looked at at all, which on a map of hundreds is what tells you where the work
+   * is happening today.
+   */
+  readers: string[]
+  /**
    * True while a card is being dragged over this one.
    *
    * The whole feedback for drag-to-nest: without it the gesture is a guess, because
@@ -50,6 +60,13 @@ export interface NodeCardData extends Record<string, unknown> {
    * from "dropped into this node", and the two do very different things.
    */
   dropTarget: boolean
+  /**
+   * True when nothing in the space reaches this node: see `documentation/disconnected`.
+   *
+   * Passed in rather than read off the node, because the canvas can correct the server's
+   * count with the edges it is holding and a card cannot.
+   */
+  disconnected: boolean
 }
 
 /**
@@ -82,10 +99,10 @@ export const NodeCard = memo(function NodeCard({
   data: NodeCardData
   selected?: boolean
 }) {
-  const { node, blockCount, actions, linking, editable, presentEditors, dropTarget } = data
+  const { node, blockCount, actions, linking, editable, presentEditors, readers, dropTarget, disconnected } = data
   const childCount = node.childCount ?? 0
+  const blocks = blockCount ?? 0
   const parents = node.parents ?? []
-  const lineage = describeLineage(parents)
 
   /*
    * Renaming in place.
@@ -138,6 +155,15 @@ export const NodeCard = memo(function NodeCard({
       ref={card}
       className={cn(
         'group/card relative w-60 rounded-sm border bg-card text-card-foreground transition-shadow',
+        /*
+          Greyed rather than badged alone, because the point is to be legible without
+          being read. A space's unreachable nodes are worth seeing as a pattern -- a
+          corner of the canvas that has gone quiet -- and a card that is merely a shade
+          flatter than the ones around it does that at a zoom where no icon is readable.
+
+          Before the selection and drop rules below, so both still take the border.
+        */
+        disconnected ? 'bg-muted/40' : '',
         selected ? 'border-brand-500 ring-1 ring-brand-500' : 'border-border',
         linking ? 'border-dashed border-brand-400' : '',
         dropTarget ? 'border-brand-500 ring-2 ring-brand-400 ring-offset-1' : '',
@@ -162,64 +188,123 @@ export const NodeCard = memo(function NodeCard({
         aria-label={`Connect a relationship into ${node.title}`}
       />
 
-      <div className="flex items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
-        <span className="flex min-w-0 items-center gap-1">
-          {/*
-            Up a level, and outside the editable toolbar below on purpose: going to the
-            node that contains this one is reading, not writing, and a reader following a
-            graph upwards needs it more than an author does.
-          */}
-          {parents.length > 0 ? <GoUpControl node={node} parents={parents} onGoUp={actions.onGoUp} /> : null}
-          {/*
-            The card's own sentence about where it sits: "a database of Storefront
-            Platform". Faint, because it is context rather than content -- the title below
-            is what the card is for -- but it is the line that makes a drilled-in canvas
-            legible. Every card on a level shares a parent, so without it the only clue to
-            where you are is the breadcrumb at the top of the window, a long way from the
-            node being read.
-          */}
-          <span
-            className="truncate text-[10px] leading-tight text-muted-foreground/70"
-            title={lineage}
-          >
-            {lineage}
-          </span>
-        </span>
-      </div>
+      {/*
+        One block rather than a header, a body and a footer.
 
-      <div className="px-2.5 py-2">
+        The card is read at a glance and there are hundreds of them, so every rule and
+        every band of padding was competing with the only things anyone zooms in to read:
+        the title and the summary. Collapsing the chrome into a single 10px line -- where
+        this node sits on the left, what is inside it on the right -- pays for a title
+        that wraps to two lines and a summary that runs to three, which is roughly double
+        the text in slightly less height.
+      */}
+      <div className="flex flex-col gap-0.5 px-2 py-1.5">
+        {parents.length > 0 || blocks > 0 || childCount > 0 || readers.length > 0 || disconnected ? (
+          <div className="flex items-center gap-1 text-[10px] leading-none text-muted-foreground/70">
+            {/*
+              Where this node sits, and the way back out, as one control.
+
+              They were two things -- an icon that went up, and a faint "in Storefront
+              Platform" beside it -- which spent the card's tightest line saying the same
+              name twice. Naming the parent on the button itself is what makes the way out
+              visible: an unlabelled arrow does not say where it goes, and the answer
+              mattered enough that the card printed it anyway.
+
+              Outside the editable toolbar below on purpose: going to the node that
+              contains this one is reading, not writing, and a reader following a graph
+              upwards needs it more than an author does.
+            */}
+            {parents.length > 0 ? (
+              <GoUpControl node={node} parents={parents} onGoUp={actions.onGoUp} />
+            ) : disconnected ? (
+              /*
+                In the slot the way out would occupy, because it is the answer to the same
+                question. That line says where this node sits, and for this one the answer
+                is nowhere -- so the icon stands where the parent's name would have been
+                rather than competing with the counts on the right.
+
+                Icon alone: the line is 10px and the counts beside it are read as
+                magnitudes, not prose. The sentence is on the tooltip and for a screen
+                reader, which is where "why is this card grey" is answered.
+              */
+              <span className="flex min-w-0 items-center" title={DISCONNECTED_HINT}>
+                <DisconnectedIcon className="size-2.5 shrink-0" aria-hidden />
+                <span className="sr-only">{DISCONNECTED_HINT}</span>
+              </span>
+            ) : null}
+
+            {/*
+              Counts as icon and number, not as prose. "3 blocks · 4 inside" spelled out
+              took most of the line away from the parent named beside it, and these are
+              glanced at for their magnitude rather than read.
+            */}
+            <span className="ml-auto flex shrink-0 items-center gap-1 font-mono">
+              {/*
+                Live, and coloured because of it: every other number on this line is a
+                fact about the document, and this one is a fact about right now. It is
+                first in the row for the same reason -- it is the only one that will be
+                different in a minute.
+              */}
+              {readers.length > 0 ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-brand-600"
+                  title={`${readers.join(', ')} ${readers.length === 1 ? 'is' : 'are'} reading this now`}
+                >
+                  <Eye className="size-2.5" aria-hidden />
+                  {readers.length}
+                  <span className="sr-only">reading now</span>
+                </span>
+              ) : null}
+              {blocks > 0 ? (
+                <span className="inline-flex items-center gap-0.5" title={`${blocks} ${blocks === 1 ? 'block' : 'blocks'} of documentation`}>
+                  <FileText className="size-2.5" aria-hidden />
+                  {blocks}
+                  <span className="sr-only">{blocks === 1 ? 'block' : 'blocks'}</span>
+                </span>
+              ) : null}
+              {childCount > 0 ? (
+                <button
+                  type="button"
+                  // The dive affordance sits on the count itself: the number of things
+                  // inside and the way in are the same fact, so they are the same control.
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    actions.onDive(node.id)
+                  }}
+                  // Filled in the brand tint rather than grey: of the two controls on
+                  // this line, going *in* is the one the canvas is for.
+                  className="inline-flex cursor-pointer items-center gap-0.5 rounded-xs bg-brand-50 px-1 py-0.5 text-brand-700 hover:bg-brand-100 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none dark:bg-brand-500/20 dark:text-brand-100"
+                  aria-label={`Open ${node.title}, containing ${childCount} ${childCount === 1 ? 'node' : 'nodes'}`}
+                  title={`Open ${node.title}, containing ${childCount} ${childCount === 1 ? 'node' : 'nodes'}`}
+                >
+                  <CornerDownRight className="size-2.5" aria-hidden />
+                  {childCount}
+                </button>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
+
         {renaming ? (
           <TitleInput title={node.title} onCommit={commitRename} onCancel={() => setRenaming(false)} />
         ) : (
-          <p className="truncate text-sm font-medium leading-tight">{node.title}</p>
+          // Wrapped to two lines rather than truncated: a title is how a node is
+          // identified, and "Storefront checkout orche…" identifies nothing. Past two
+          // lines it does truncate, and the full text stays available on hover.
+          <p
+            className={cn(
+              'line-clamp-2 text-[13px] font-medium leading-snug',
+              disconnected && 'text-muted-foreground',
+            )}
+            title={node.title}
+          >
+            {node.title}
+          </p>
         )}
         {node.summary ? (
-          <p className="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground">{node.summary}</p>
+          <p className="line-clamp-3 text-[11px] leading-snug text-muted-foreground">{node.summary}</p>
         ) : null}
-
-        <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
-          {blockCount !== null && blockCount > 0 ? (
-            <span>
-              {blockCount} {blockCount === 1 ? 'block' : 'blocks'}
-            </span>
-          ) : null}
-          {childCount > 0 ? (
-            <button
-              type="button"
-              // The dive affordance sits on the count itself: the number of things inside
-              // and the way in are the same fact, so they are the same control.
-              onClick={(event) => {
-                event.stopPropagation()
-                actions.onDive(node.id)
-              }}
-              className="inline-flex items-center gap-1 rounded-xs px-1 text-brand-600 hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-              aria-label={`Open ${node.title}, containing ${childCount} ${childCount === 1 ? 'node' : 'nodes'}`}
-            >
-              <CornerDownRight className="size-3" aria-hidden />
-              {childCount} inside
-            </button>
-          ) : null}
-        </div>
       </div>
 
       {presentEditors.length > 0 ? (
@@ -282,16 +367,18 @@ export const NodeCard = memo(function NodeCard({
 })
 
 /**
- * "inside Storefront Platform", or "at the top of the space".
+ * "Up to Storefront Platform", or "Up to Identity +2".
  *
- * Answers "where does this node sit" in one short line. Further parents are counted
- * rather than named -- a node inside three systems has no single primary one.
+ * Says where this node sits and where the control goes in the same phrase, which is why
+ * the card no longer prints the two separately. Further parents are counted rather than
+ * named -- a node inside three systems has no single primary one, so the count is a
+ * promise that the click offers a choice.
  */
 function describeLineage(parents: NodeParent[]): string {
   const first = parents[0]
-  if (!first) return 'at the top of the space'
+  if (!first) return 'Up a level'
   const others = parents.length - 1
-  return `in ${first.title}${others > 0 ? ` +${others}` : ''}`
+  return `Up to ${first.title}${others > 0 ? ` +${others}` : ''}`
 }
 
 /**
@@ -314,9 +401,13 @@ function GoUpControl({
 }) {
   const [open, setOpen] = useState(false)
   const single = parents.length === 1 ? parents[0] : null
+  const label = describeLineage(parents)
 
   return (
-    <span className="relative shrink-0">
+    // `min-w-0` all the way down, because the label is the one thing on this line that
+    // may be long: a parent called "Storefront Platform Orchestration" has to give way
+    // to the counts beside it rather than push them off the card.
+    <span className="relative min-w-0">
       <button
         type="button"
         aria-label={
@@ -332,9 +423,19 @@ function GoUpControl({
           if (single) onGoUp(single)
           else setOpen((current) => !current)
         }}
-        className="inline-flex items-center gap-0.5 rounded-xs px-0.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+        /*
+          A resting tint, not just a hover one.
+
+          Everything on this line is 10px grey text, so an unfilled control was
+          indistinguishable from the label beside it: you found out it was a button by
+          happening to put the pointer on it. The chip is the cheapest thing that reads as
+          pressable at this size, and it is why the counts that are *not* buttons -- the
+          readers, the blocks -- were left flat.
+        */
+        className="flex w-full min-w-0 cursor-pointer items-center gap-0.5 rounded-xs bg-muted px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
       >
-        <ArrowUpFromLine className="size-3" aria-hidden />
+        <ArrowUpFromLine className="size-2.5 shrink-0" aria-hidden />
+        <span className="min-w-0 truncate">{label}</span>
       </button>
 
       {open && !single ? (
@@ -359,7 +460,7 @@ function GoUpControl({
                 setOpen(false)
                 onGoUp(parent)
               }}
-              className="truncate rounded-xs px-1.5 py-1 text-left text-xs hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+              className="cursor-pointer truncate rounded-xs px-1.5 py-1 text-left text-xs hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
             >
               {parent.title}
             </button>
@@ -430,7 +531,7 @@ function TitleInput({
       onDoubleClick={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       aria-label={`Rename ${title}`}
-      className="nodrag w-full rounded-xs border border-input bg-background px-1 py-0.5 text-sm font-medium leading-tight focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+      className="nodrag w-full rounded-xs border border-input bg-background px-1 py-0.5 text-[13px] font-medium leading-snug focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
     />
   )
 }
@@ -459,7 +560,7 @@ function QuickAction({
         onClick()
       }}
       className={cn(
-        'grid size-6 place-items-center rounded-xs text-muted-foreground hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none',
+        'grid size-6 cursor-pointer place-items-center rounded-xs text-muted-foreground hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none',
         destructive ? 'hover:text-destructive' : 'hover:text-foreground',
       )}
     >

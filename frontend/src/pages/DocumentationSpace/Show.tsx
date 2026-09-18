@@ -1,6 +1,6 @@
 import { Head } from '@inertiajs/react'
 import { Plus } from 'lucide-react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
@@ -60,6 +60,23 @@ export default function DocumentationSpaceShow({
     spaceId: space.id,
     onGraphMessage: graph.applyRealtime,
   })
+
+  /*
+   * Says where this client already is, once, at mount.
+   *
+   * Every callback that *moves* publishes presence, so the one position that went
+   * unreported was the first: a session that opens a link straight into a level and then
+   * reads without navigating showed up to everyone else as being nowhere. That is exactly
+   * the session another person most wants to see -- someone reading a node right now --
+   * and the cards that count readers had no way to know about it.
+   *
+   * Safe before the socket is open: the channel keeps the last presence it was given and
+   * replays it in the `hello` it sends on connect.
+   */
+  useEffect(() => {
+    publishPresence({ focusNodeId: graph.focusNodeId, selectedNodeId: graph.selectedNodeId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const canvasRef = useRef<SpatialCanvasHandle>(null)
   // Kept in sync by InspectorColumn.onWidthChange. Initialised from localStorage so the
@@ -240,16 +257,17 @@ export default function DocumentationSpaceShow({
   /**
    * Up a level from a card, to the node that contains it.
    *
-   * The same landing as a ghost card's: the level the parent lives on, with the parent
-   * selected. Not *inside* the parent -- that is where the user already is.
+   * Lands on the level the parent lives on -- not *inside* the parent, which is where the
+   * user already is -- and selects nothing on arrival. Naming the parent on the chip is a
+   * request to go and look at where this node sits, so opening the inspector over the
+   * canvas the user has just moved to answers a question they did not ask. A ghost card
+   * still selects, because there the node clicked is the thing being looked for.
    */
   const goUp = useCallback(
     (parent: NodeParent) => {
       history.reset()
-      void graph.focusOn(parent.parentNodeId ?? null).then(() => {
-        graph.selectNode(parent.id)
-        publishPresence({ focusNodeId: parent.parentNodeId ?? null, selectedNodeId: parent.id })
-      })
+      void graph.focusOn(parent.parentNodeId ?? null)
+      publishPresence({ focusNodeId: parent.parentNodeId ?? null, selectedNodeId: null })
     },
     [graph, history, publishPresence],
   )
@@ -356,17 +374,10 @@ export default function DocumentationSpaceShow({
 
           <PresenceBar peers={peers} self={collaborator} connected={connected} />
           <SearchPanel spaceId={space.id} onSelectNode={selectNode} />
-
-          {mayEdit ? (
-            <Button size="sm" onClick={addNodeAtCentre} disabled={graph.saving}>
-              <Plus className="size-4" />
-              <span className="hidden sm:inline">Add node</span>
-            </Button>
-          ) : null}
         </div>
       </div>
     ),
-    [addNodeAtCentre, collaborator, connected, graph.nodeCount, graph.relationshipCount, graph.saving, mayEdit, peers, selectNode, space.name, viewerRole],
+    [collaborator, connected, graph.nodeCount, graph.relationshipCount, peers, selectNode, space.name, viewerRole],
   )
 
   return (
@@ -389,6 +400,23 @@ export default function DocumentationSpaceShow({
           />
 
           <div className="relative min-h-0 flex-1">
+            {/*
+              Adding lives on the canvas rather than in the header because a new node
+              lands where the user is looking. The button sits where it acts.
+            */}
+            {mayEdit ? (
+              <Button
+                size="icon"
+                aria-label="Add node"
+                title="Add node"
+                className="absolute top-3 left-3 z-20 rounded-full shadow-md"
+                onClick={addNodeAtCentre}
+                disabled={graph.saving}
+              >
+                <Plus className="size-4" />
+              </Button>
+            ) : null}
+
             {graph.error ? (
               <div
                 role="alert"

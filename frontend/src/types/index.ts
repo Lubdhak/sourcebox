@@ -163,6 +163,15 @@ export interface DocumentationNode {
    */
   childCount?: number
   /**
+   * How many nodes this one is connected to, in either direction and by any type.
+   *
+   * Read for the one value that means something on its own: zero, which is a node
+   * nothing can navigate to. Counted by the server for the same reason `childCount` is
+   * -- a canvas holds one level plus a sample of the edges leaving it, so a client that
+   * saw no edge for a node could not tell which of the two reasons that was.
+   */
+  relationshipCount?: number
+  /**
    * The node that contains this one, or null at the top of the space.
    *
    * Requested for the neighbours drawn around a level, because opening one means going

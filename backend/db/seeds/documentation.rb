@@ -23,25 +23,10 @@
 # Written against the models rather than the operations. The operations emit an event per
 # mutation, which is right for a user action and wrong here: re-seeding would enqueue a
 # job for every node in the space to record that a fixture was refreshed. The space itself
-# does go through Documentation::CreateSpace, so its default layers come from one place.
+# does go through Documentation::CreateSpace.
 
 SEED_SPACE_OWNER_EMAIL = "lubi@gmail.com"
 SEED_SPACE_SLUG = "system-design-knowledge-graph"
-
-# The rungs of the ladder, named for the granularity they hold rather than for a category.
-#
-# Depth is zoom, not containment: nothing here is "inside" a rung. A node's rung is
-# derived below from how far it sits from the root along `contains`, which is the same rule
-# Documentation::CreateNode applies when a node is created by hand -- one below its parent.
-SEED_LAYERS = [
-  { index: 0, name: "Field",           description: "The whole subject, in one card." },
-  { index: 1, name: "Areas",           description: "The pressures every system is designed against." },
-  { index: 2, name: "Concepts",        description: "The named ideas within each area." },
-  { index: 3, name: "Mechanisms",      description: "The specific techniques those ideas are built from." },
-  { index: 4, name: "Implementations", description: "Real technologies that implement a mechanism." },
-  { index: 5, name: "Internals",       description: "How one technology actually does it." },
-  { index: 6, name: "Numbers",         description: "The settings, limits and figures you type." }
-].freeze
 
 # Most nodes are one card and one paragraph. Only the ones a reader is expected to stop at
 # carry several blocks, and those are written out in full below.
@@ -2542,13 +2527,6 @@ else
     space.update!(slug: SEED_SPACE_SLUG)
   end
 
-  SEED_LAYERS.each do |attributes|
-    layer = space.layers.find_or_initialize_by(index: attributes[:index])
-    layer.assign_attributes(attributes)
-    layer.save!
-  end
-
-  layers_by_index = space.layers.index_by(&:index)
   nodes_by_title = {}
 
   SEED_NODES.each do |attributes|
@@ -2558,7 +2536,6 @@ else
 
     node = space.nodes.find_or_initialize_by(title: title)
     node.assign_attributes(
-      layer: layers_by_index.fetch(depth),
       x: x,
       y: y,
       z: [ 2 - depth, 0 ].max,

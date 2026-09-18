@@ -4,6 +4,12 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkdownBlock } from '@/features/documentation/blocks/MarkdownBlock'
 import { useCollaborativeDocument } from '@/features/documentation/collaboration/useCollaborativeDocument'
+import {
+  DISCONNECTED_HINT,
+  DISCONNECTED_LABEL,
+  DisconnectedIcon,
+  isDisconnected,
+} from '@/features/documentation/disconnected'
 import * as api from '@/features/documentation/graphql'
 import { PageEditor, type MentionCandidate } from '@/features/documentation/inspector/PageEditor'
 import { useNodeDetail } from '@/features/documentation/inspector/useNodeDetail'
@@ -144,6 +150,22 @@ export function InspectorPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {/*
+            The same mark the card carries, with the label spelled out because there is
+            room for it here. Counted from this node's own edges rather than from the
+            server's number: the page has the full list in front of it, which is the same
+            fact the count is derived from and cannot be a level out of date.
+          */}
+          {isDisconnected(relationshipCount) ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-xs bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              title={DISCONNECTED_HINT}
+            >
+              <DisconnectedIcon className="size-3" aria-hidden />
+              {DISCONNECTED_LABEL}
+            </span>
+          ) : null}
+
           {editable && !editing ? (
             <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setEditing(true)}>
               <Pencil className="size-3" />

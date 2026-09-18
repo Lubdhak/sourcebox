@@ -45,6 +45,7 @@ const NODE_FIELDS = /* GraphQL */ `
     }
     metadata
     childCount
+    relationshipCount
     parents {
       id
       title

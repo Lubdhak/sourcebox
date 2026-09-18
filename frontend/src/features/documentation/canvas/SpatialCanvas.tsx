@@ -28,6 +28,7 @@ import {
 } from '@/features/documentation/canvas/NodeCard'
 import type { Peer } from '@/features/documentation/collaboration/useSpaceChannel'
 import { collaboratorColor } from '@/features/documentation/collaboration/colors'
+import { isDisconnected } from '@/features/documentation/disconnected'
 import type { DocumentationNode, NodeParent, NodeRelationship, SpatialPosition } from '@/types'
 
 import '@xyflow/react/dist/style.css'
@@ -135,6 +136,21 @@ const NEIGHBOR_COLUMN_WIDTH = 200
 const DIVE_ANIMATION_MS = 420
 
 /**
+ * How long a click on a card waits before it opens the inspector.
+ *
+ * A double-click is delivered as two clicks and then a `dblclick`, so the gesture that
+ * dives into a node necessarily passes through the one that selects it. Acting on the
+ * first click immediately meant every dive flashed the inspector open and shut: the panel
+ * mounted and began its slide-in, and the dive cleared the selection a moment later.
+ *
+ * So the selection is held for long enough to find out which gesture this was. Nothing
+ * visible waits on it -- React Flow marks the card selected from its own store on
+ * pointer-down, so the ring still appears at once -- which leaves only the panel, and a
+ * panel that takes a quarter-second to arrive reads as it opening rather than as lag.
+ */
+const SELECT_ON_CLICK_DELAY_MS = 250
+
+/**
  * Imperative handle exposed to the parent via a ref.
  *
  * Kept intentionally minimal: only the things the parent genuinely cannot compute
@@ -224,7 +240,7 @@ export interface SpatialCanvasProps {
   onReparentNode?: (nodeId: string, newParentNodeId: string | null) => void
   /** Leave this level for the one a neighbour lives on. */
   onOpenNeighbor?: (node: DocumentationNode) => void
-  /** Go to the level a containing node lives on, with that node selected. */
+  /** Go to the level a containing node lives on. Navigation only: nothing is selected. */
   onGoUp?: (parent: NodeParent) => void
   onPointerPosition?: (position: { x: number; y: number }) => void
 }
@@ -400,6 +416,33 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     return map
   }, [peers])
 
+  /**
+   * Everyone whose attention is on a node right now, counting the level below.
+   *
+   * Wider than `editorsByNode` on purpose: a colleague who has dived *into* a node is
+   * reading it as surely as one who has its page open, and from out here they would
+   * otherwise vanish -- their level is not on screen, so nothing would show them at all.
+   * Both collapse onto the one card that is: the node they are in.
+   *
+   * Deduplicated by session, because diving with the keyboard also selects on arrival,
+   * which would otherwise count one person twice.
+   */
+  const readersByNode = useMemo(() => {
+    const map = new Map<string, Map<string, string>>()
+
+    for (const peer of peers) {
+      for (const nodeId of new Set([peer.selectedNodeId, peer.focusNodeId])) {
+        if (!nodeId) continue
+
+        const readers = map.get(nodeId) ?? new Map<string, string>()
+        readers.set(peer.sessionId, peer.actor.name)
+        map.set(nodeId, readers)
+      }
+    }
+
+    return map
+  }, [peers])
+
   const actions = useMemo<NodeCardActions>(
     () => ({
       onDive,
@@ -459,6 +502,27 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     return map
   }, [nodes, relationships])
 
+  /**
+   * Every node with an edge drawn on this canvas right now.
+   *
+   * Used only to *un*-mark a node the server counted as connected to nothing, never to
+   * mark one: this is one level's slice of the edges, so a node absent from it may simply
+   * connect to something off screen. The case it exists for is the edge just drawn --
+   * connecting two nodes adds the edge to the canvas without refetching the nodes, so the
+   * count the cards are holding is a moment out of date, and a card would otherwise stay
+   * greyed as unconnected immediately after being connected.
+   */
+  const connectedOnLevel = useMemo(() => {
+    const ids = new Set<string>()
+
+    for (const relationship of relationships) {
+      ids.add(relationship.sourceNodeId)
+      ids.add(relationship.targetNodeId)
+    }
+
+    return ids
+  }, [relationships])
+
   const toFlowNodes = useCallback(
     (source: DocumentationNode[]): CanvasNode[] => {
       const cards: CanvasNode[] = source.map((node) => ({
@@ -476,7 +540,9 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
           linking: linkingFrom !== null && linkingFrom !== node.id,
           editable,
           presentEditors: editorsByNode.get(node.id) ?? [],
+          readers: [...(readersByNode.get(node.id)?.values() ?? [])],
           dropTarget: drop?.kind === 'node' && drop.nodeId === node.id,
+          disconnected: isDisconnected(node.relationshipCount) && !connectedOnLevel.has(node.id),
         },
       }))
 
@@ -518,12 +584,14 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     [
       actions,
       blockCounts,
+      connectedOnLevel,
       drop,
       editable,
       editorsByNode,
       linkingFrom,
       neighbors,
       onOpenNeighbor,
+      readersByNode,
       selectedNodeId,
       toneFor,
       verbsByNeighbor,
@@ -783,17 +851,43 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     [onConnectNodes],
   )
 
+  /**
+   * A click's selection, waiting to see whether a second click is coming.
+   *
+   * Cancelled by everything that reinterprets the click it came from -- a dive, a click
+   * on the pane, leaving the level -- because until it fires it is a selection nobody has
+   * asked for yet, and letting it land afterwards would open a panel for a card on a
+   * canvas the user has already left.
+   */
+  const pendingSelect = useRef<number | null>(null)
+
+  const cancelPendingSelect = useCallback(() => {
+    if (pendingSelect.current === null) return
+
+    window.clearTimeout(pendingSelect.current)
+    pendingSelect.current = null
+  }, [])
+
+  useEffect(() => cancelPendingSelect, [cancelPendingSelect])
+
   const handleNodeClick = useCallback(
     (nodeId: string) => {
+      cancelPendingSelect()
+
+      // Completing a link is unambiguous -- the gesture began on another card's toolbar
+      // -- so it is not held back to wait for a double-click that would mean nothing here.
       if (linkingFrom && linkingFrom !== nodeId) {
         onConnectNodes(linkingFrom, nodeId)
         setLinkingFrom(null)
         return
       }
 
-      onSelectNode(nodeId)
+      pendingSelect.current = window.setTimeout(() => {
+        pendingSelect.current = null
+        onSelectNode(nodeId)
+      }, SELECT_ON_CLICK_DELAY_MS)
     },
-    [linkingFrom, onConnectNodes, onSelectNode],
+    [cancelPendingSelect, linkingFrom, onConnectNodes, onSelectNode],
   )
 
   /**
@@ -807,6 +901,9 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
   const handleDoubleClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       if (!instance.current) return
+
+      // The clicks that got here were the halves of this gesture, not a selection.
+      cancelPendingSelect()
 
       const target = event.target as HTMLElement
       const card = target.closest<HTMLElement>('.react-flow__node')
@@ -829,7 +926,7 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
 
       onCreateNodeAt({ x: position.x, y: position.y, z: 0 })
     },
-    [editable, onCreateNodeAt, onDive],
+    [cancelPendingSelect, editable, onCreateNodeAt, onDive],
   )
 
   /**
@@ -887,6 +984,7 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
           return
         }
 
+        cancelPendingSelect()
         holdFocus(container)
         onAscend?.({ fromKeyboard: true })
         return
@@ -896,6 +994,7 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
         if (!activeId || !nodes.some((node) => node.id === activeId)) return
 
         event.preventDefault()
+        cancelPendingSelect()
         holdFocus(container)
         onDive(activeId, { fromKeyboard: true })
         return
@@ -940,6 +1039,7 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
       })
     },
     [
+      cancelPendingSelect,
       editable,
       holdFocus,
       linkingFrom,
@@ -1001,6 +1101,7 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
         // describing. It also abandons a half-drawn link, which is the only way out of
         // link mode that does not require aiming at anything.
         onPaneClick={() => {
+          cancelPendingSelect()
           setLinkingFrom(null)
           setMultiSelectedIds(new Set())
           onSelectNode(null)

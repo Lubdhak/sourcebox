@@ -48,6 +48,21 @@ module Types
             calls a dozen services does not pretend to hold them.
           DESC
 
+    field :relationship_count, Int,
+          description: <<~DESC
+            How many nodes this one is connected to, in either direction and by any
+            relationship type.
+
+            Zero is the value the UI reads: a node that nothing contains, that contains
+            nothing and that nothing links to cannot be arrived at by navigating, only
+            by search, and both the card and the page mark it as such.
+
+            Counted here rather than from the edges a canvas was sent, because a canvas
+            gets one level's edges plus a capped sample of the ones leaving it -- from
+            which the client cannot tell a node connected to nothing from one whose only
+            edge was over that cap.
+          DESC
+
     field :parent_node_id, ID, null: true,
           description: <<~DESC
             The node that contains this one, or null if it sits at the top of the space.
@@ -75,6 +90,10 @@ module Types
 
     def child_count
       dataloader.with(Loaders::ChildCountLoader).load(object.id)
+    end
+
+    def relationship_count
+      dataloader.with(Loaders::RelationshipCountLoader).load(object.id)
     end
 
     def parent_node_id
