@@ -51,7 +51,7 @@ wait_for_database() {
 
 case "${1:-}" in
   # Processes that talk to the database.
-  bin/rails | ./bin/rails | bin/jobs | ./bin/jobs)
+  bin/rails | ./bin/rails | bin/jobs | ./bin/jobs | docker/start-web.sh | ./docker/start-web.sh)
     wait_for_database
     ;;
 esac
