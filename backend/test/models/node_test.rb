@@ -14,21 +14,30 @@ class NodeTest < ActiveSupport::TestCase
     assert_operator node.width, :>, 0
   end
 
-  test "requires a title and a type" do
-    node = @space.nodes.new(node_type: "")
+  test "requires a title" do
+    node = @space.nodes.new
 
     assert_not node.valid?
     assert_includes node.errors[:title], "can't be blank"
-    assert_includes node.errors[:node_type], "can't be blank"
   end
 
-  test "accepts a node type outside the suggested vocabulary" do
-    # The open set is the point: a team must be able to document a kind of thing nobody
-    # anticipated without a migration or a deploy.
-    node = create_node(space: @space, node_type: "regulatory_control")
+  # --- Soft deletion ----------------------------------------------------
 
-    assert_predicate node, :persisted?
-    assert_not_includes Node::SUGGESTED_TYPES, "regulatory_control"
+  test "a soft-deleted node disappears from every ordinary read" do
+    node = create_node(space: @space)
+    node.update!(deleted_at: Time.current)
+
+    assert_nil Node.find_by(id: node.id)
+    assert_empty @space.nodes.reload.where(id: node.id)
+    assert_equal 0, @space.nodes.count
+  end
+
+  test "a soft-deleted node is still there for anything that asks for it" do
+    node = create_node(space: @space)
+    node.update!(deleted_at: Time.current)
+
+    assert_predicate Node.with_deleted.find(node.id), :deleted?
+    assert_equal [ node.id ], Node.only_deleted.pluck(:id)
   end
 
   test "rejects coordinates beyond the limit" do

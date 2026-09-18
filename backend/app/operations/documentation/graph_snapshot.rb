@@ -59,11 +59,22 @@ module Documentation
       nodes = scope.ordered.limit(@limit).to_a
       node_ids = nodes.map(&:id)
       crossing = crossing_edges(node_ids)
+      neighbors = neighbors_of(node_ids, crossing)
+
+      # An edge whose far end did not come back has nothing to attach to, so it is
+      # dropped along with it. The case that produces this is a soft-deleted neighbour:
+      # the edge row survives the deletion by design, but `neighbors_of` will not return
+      # the node, and handing the client an edge pointing at an id it was never given
+      # leaves a line anchored to nothing.
+      reachable = node_ids.to_set.merge(neighbors.map(&:id))
+      crossing = crossing.select do |edge|
+        reachable.include?(edge.source_node_id) && reachable.include?(edge.target_node_id)
+      end
 
       Snapshot.new(
         nodes: nodes,
         relationships: relationships_among(node_ids) + crossing,
-        neighbors: neighbors_of(node_ids, crossing),
+        neighbors: neighbors,
         node_count: total,
         relationship_count: @space.node_relationships.count,
         truncated: total > nodes.size,

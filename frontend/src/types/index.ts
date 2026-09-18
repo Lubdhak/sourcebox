@@ -196,28 +196,89 @@ export interface NodeParent {
   parentNodeId: string | null
 }
 
-/** An edge that a deletion would remove, said as a sentence rather than as a count. */
-export interface AffectedRelationship {
+/* ---------------------------------------------------------------------------
+ * Deletion
+ *
+ * Mirrors `Documentation::DeletionPolicy` and `Documentation::NodeDeletion::Impact`.
+ * The wire values are SCREAMING_CASE because they are GraphQL enums; the UI never shows
+ * them, it shows the copy in `features/documentation/deletion/copy.ts`.
+ * ------------------------------------------------------------------------- */
+
+/** Whether a deletion can be undone. Matches the GraphQL `DeletionMode` enum. */
+export type DeletionMode = 'SOFT' | 'HARD'
+
+/** What happens to things pointing at the deleted nodes. Matches `ReferencePolicy`. */
+export type ReferencePolicy = 'PRESERVE' | 'REMOVE'
+
+/** What happens to the nodes filed inside the deleted ones. Matches `OrphanPolicy`. */
+export type OrphanPolicy = 'KEEP' | 'DELETE'
+
+/** The three questions a deletion answers, as one object. */
+export interface DeletionPolicy {
+  deletionMode: DeletionMode
+  referencePolicy: ReferencePolicy
+  orphanPolicy: OrphanPolicy
+}
+
+/** One node in the deletion preview, with why it is listed where it is. */
+export interface DeletionEntry {
   id: string
-  relationshipType: string
+  title: string
+  /** Null for the explicit selection; a sentence for everything else. */
+  reason: string | null
+}
+
+/**
+ * One thing pointing at a node being deleted.
+ *
+ * Deliberately does not distinguish an edge from an `@`-mention in its shape — the user's
+ * question is "what points at this", and the storage mechanism is not part of it. `kind`
+ * is the relationship verb, or `mention` for prose.
+ */
+export interface DeletionReference {
+  id: string
+  kind: string
+  sourceId: string
   sourceTitle: string
+  targetId: string
   targetTitle: string
 }
 
-/** What deleting a node would take with it, read before asking anyone to confirm. */
-export interface DeletionImpact {
-  node: Pick<DocumentationNode, 'id' | 'title'>
-  /** Nodes inside it that would cease to exist, nearest first. */
-  descendants: Pick<DocumentationNode, 'id' | 'title'>[]
-  /** Nodes inside it that also live elsewhere, and so survive either way. */
-  retained: Pick<DocumentationNode, 'id' | 'title'>[]
-  /** Every edge touching the node itself. These go whichever option is taken. */
-  relationships: AffectedRelationship[]
-  relationshipCount: number
-  /** Further edges only a cascading delete would remove. */
-  descendantRelationshipCount: number
+/**
+ * What a deletion would do, under one policy, to one selection.
+ *
+ * Always calculated by the server. The frontend renders these numbers and never derives
+ * them: the graph traversal that produces them lives in `Documentation::NodeDeletion`,
+ * and a second implementation in React would be a second answer to the same question.
+ */
+export interface NodeDeletionImpact {
+  /**
+   * Fingerprint of this exact preview.
+   *
+   * Sent back with the mutation so the server can refuse a selection the user never saw.
+   */
+  digest: string
+  selected: DeletionEntry[]
+  orphans: DeletionEntry[]
+  retained: DeletionEntry[]
+  references: DeletionReference[]
+  selectedCount: number
+  orphanCount: number
+  referenceCount: number
+  /** Nodes deleted beyond the selection. Zero when disconnected nodes are kept. */
+  additionalDeleteCount: number
+  /** Total nodes this operation would delete. */
+  deleteCount: number
+  /** Distinct nodes touched at all, including the ones left holding a changed page. */
+  affectedCount: number
   blockCount: number
-  descendantBlockCount: number
+}
+
+/** The outcome of `deleteNodes`. `changed` means the graph moved and nothing was deleted. */
+export interface DeleteNodesResult {
+  deletedNodeIds: string[] | null
+  changed: boolean
+  impact: NodeDeletionImpact | null
 }
 
 export interface NodeRelationship {

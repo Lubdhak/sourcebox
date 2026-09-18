@@ -83,9 +83,9 @@ class Documentation::AuthorizationTest < ActiveSupport::TestCase
         "mutation($i: MoveNodesInput!) { moveNodes(input: $i) { nodes { id } } }",
         { i: { spaceId: @space.public_id, positions: [ { nodeId: @node.id.to_s, x: 1.0, y: 1.0 } ] } },
       ],
-      "deleteNode" => [
-        "mutation($i: DeleteNodeInput!) { deleteNode(input: $i) { deletedNodeId } }",
-        { i: { nodeId: @node.id.to_s } },
+      "deleteNodes" => [
+        "mutation($i: DeleteNodesInput!) { deleteNodes(input: $i) { deletedNodeIds } }",
+        { i: { nodeIds: [ @node.id.to_s ] } },
       ],
       "createRelationship" => [
         "mutation($i: CreateRelationshipInput!) { createRelationship(input: $i) { relationship { id } } }",

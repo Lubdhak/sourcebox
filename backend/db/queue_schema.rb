@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_18_000002) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_18_000003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -121,6 +121,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000002) do
 
   create_table "nodes", force: :cascade do |t|
     t.datetime "created_at", null: false
+    t.datetime "deleted_at"
+    t.bigint "deleted_by_id"
     t.float "depth", default: 0.0, null: false
     t.bigint "documentation_space_id", null: false
     t.float "height", default: 120.0, null: false
@@ -133,6 +135,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000002) do
     t.float "x", default: 0.0, null: false
     t.float "y", default: 0.0, null: false
     t.float "z", default: 0.0, null: false
+    t.index ["documentation_space_id", "deleted_at"], name: "index_nodes_on_space_and_deleted_at"
     t.index ["documentation_space_id", "x", "y"], name: "index_nodes_on_documentation_space_id_and_x_and_y"
     t.index ["search_vector"], name: "index_nodes_on_search_vector", using: :gin
     t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "nodes_metadata_is_object"
@@ -340,6 +343,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000002) do
   add_foreign_key "node_relationships", "nodes", column: "source_node_id"
   add_foreign_key "node_relationships", "nodes", column: "target_node_id"
   add_foreign_key "nodes", "documentation_spaces"
+  add_foreign_key "nodes", "users", column: "deleted_by_id", on_delete: :nullify
   add_foreign_key "solid_queue_batch_executions", "solid_queue_batches", column: "batch_id", on_delete: :cascade
   add_foreign_key "solid_queue_batch_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade

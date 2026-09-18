@@ -18,7 +18,8 @@ module Types
     field :move_nodes, mutation: Mutations::MoveNodes
     field :reparent_node, mutation: Mutations::ReparentNode
     field :clone_node, mutation: Mutations::CloneNode
-    field :delete_node, mutation: Mutations::DeleteNode
+    # One deletion entry point for one node or many. See Mutations::DeleteNodes.
+    field :delete_nodes, mutation: Mutations::DeleteNodes
     field :create_relationship, mutation: Mutations::CreateRelationship
     field :delete_relationship, mutation: Mutations::DeleteRelationship
     field :upsert_content_block, mutation: Mutations::UpsertContentBlock

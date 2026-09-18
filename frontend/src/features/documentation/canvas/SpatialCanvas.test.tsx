@@ -7,7 +7,6 @@ import type { DocumentationNode } from '@/types'
 function node(id: string, x: number, y: number): DocumentationNode {
   return {
     id,
-    nodeType: 'service',
     title: `Node ${id}`,
     summary: null,
     position: { x, y, z: 0 },

@@ -44,7 +44,6 @@ module DocumentationFactories
   def create_node(space:, title: nil, **attributes)
     space.nodes.create!(
       title: title || "Node #{SecureRandom.hex(4)}",
-      node_type: attributes.delete(:node_type) || "service",
       **attributes
     )
   end

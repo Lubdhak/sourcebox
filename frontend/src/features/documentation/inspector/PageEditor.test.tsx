@@ -34,13 +34,13 @@ import type { ContentBlock } from '@/types'
  */
 function Harness({
   initial = '',
-  candidates = [{ id: '42', title: 'Payment Service', nodeType: 'service' }],
+  candidates = [{ id: '42', title: 'Payment Service' }],
   onSearchMentions = vi.fn().mockResolvedValue([]),
   onSave = vi.fn().mockResolvedValue(true),
   onDone = vi.fn(),
 }: {
   initial?: string
-  candidates?: { id: string; title: string; nodeType?: string }[]
+  candidates?: { id: string; title: string }[]
   onSearchMentions?: (query: string) => Promise<{ id: string; title: string }[]>
   onSave?: (markdown: string) => Promise<boolean>
   onDone?: () => void

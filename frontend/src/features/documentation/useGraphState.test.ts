@@ -8,7 +8,6 @@ vi.mock('@/features/documentation/graphql', () => ({
   moveNodes: vi.fn(),
   createNode: vi.fn(),
   updateNode: vi.fn(),
-  deleteNode: vi.fn(),
   reparentNode: vi.fn(),
   cloneNode: vi.fn(),
   createRelationship: vi.fn(),
@@ -22,7 +21,6 @@ const SPACE_ID = 'space-uuid'
 function node(id: string, x: number, y: number): DocumentationNode {
   return {
     id,
-    nodeType: 'service',
     title: `Node ${id}`,
     summary: null,
     position: { x, y, z: 0 },
@@ -226,21 +224,37 @@ describe('useGraphState', () => {
     expect(result.current.selectedNodeId).toBe('copy')
   })
 
-  it('asks the server to take the contents too only when told to', async () => {
-    vi.mocked(api.deleteNode).mockResolvedValue('1')
+  /*
+   * Deleting is no longer this hook's job. The policy, the impact preview and the
+   * mutation all live in `useNodeDeletion`, so what is left here is the local aftermath:
+   * drop the cards, clear a selection that pointed at one of them, and reconcile.
+   */
+  it('drops deleted cards immediately and clears a selection pointing at one', async () => {
     const { result } = setup()
+    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
+
+    act(() => result.current.selectNode('1'))
+    expect(result.current.selectedNodeId).toBe('1')
 
     await act(async () => {
-      await result.current.removeNode('1')
-    })
-    await act(async () => {
-      await result.current.removeNode('2', true)
+      await result.current.forgetNodes(['1'])
     })
 
-    expect(vi.mocked(api.deleteNode).mock.calls).toEqual([
-      ['1', false],
-      ['2', true],
-    ])
+    expect(result.current.nodes.some((node) => node.id === '1')).toBe(false)
+    expect(result.current.selectedNodeId).toBeNull()
+  })
+
+  it('refetches after a deletion rather than reproducing the re-homing rules locally', async () => {
+    const { result } = setup()
+    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
+
+    const before = vi.mocked(api.fetchSpaceGraph).mock.calls.length
+
+    await act(async () => {
+      await result.current.forgetNodes(['2'])
+    })
+
+    expect(vi.mocked(api.fetchSpaceGraph).mock.calls.length).toBeGreaterThan(before)
   })
 
   it('lands with a card selected when the keyboard asked to go in', async () => {

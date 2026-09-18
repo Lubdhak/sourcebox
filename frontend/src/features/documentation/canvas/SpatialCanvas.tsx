@@ -12,6 +12,7 @@ import {
   type OnConnect,
   type ReactFlowInstance,
 } from '@xyflow/react'
+import { Trash2 } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
   NeighborCard,
@@ -26,7 +27,6 @@ import {
   type NodeCardData,
 } from '@/features/documentation/canvas/NodeCard'
 import type { Peer } from '@/features/documentation/collaboration/useSpaceChannel'
-import { readingOrder } from '@/features/documentation/readingOrder'
 import { collaboratorColor } from '@/features/documentation/collaboration/colors'
 import type { DocumentationNode, NodeParent, NodeRelationship, SpatialPosition } from '@/types'
 
@@ -66,18 +66,16 @@ const NO_NODES: DocumentationNode[] = []
 const NO_PEERS: Peer[] = []
 
 /**
- * What each arrow key means: a direction for nudging a card, and a step for walking the
- * level.
+ * The direction each arrow key nudges a card, with Shift held.
  *
- * Right and Down both go forward through the reading order, Left and Up both go back.
- * Four keys for two directions looks redundant, but the cards are laid out in two
- * dimensions and a person reaches for whichever arrow points at the card they can see.
+ * One grid step per press on the axis the key points along. Arrows without Shift do not
+ * move the selection: walking the level card by card was removed.
  */
-const ARROW_STEPS: Record<string, { dx: number; dy: number; forward: number }> = {
-  ArrowRight: { dx: 1, dy: 0, forward: 1 },
-  ArrowDown: { dx: 0, dy: 1, forward: 1 },
-  ArrowLeft: { dx: -1, dy: 0, forward: -1 },
-  ArrowUp: { dx: 0, dy: -1, forward: -1 },
+const ARROW_STEPS: Record<string, { dx: number; dy: number }> = {
+  ArrowRight: { dx: 1, dy: 0 },
+  ArrowDown: { dx: 0, dy: 1 },
+  ArrowLeft: { dx: -1, dy: 0 },
+  ArrowUp: { dx: 0, dy: -1 },
 }
 
 /**
@@ -201,6 +199,11 @@ export interface SpatialCanvasProps {
   onRenameNode?: (nodeId: string, title: string) => void
   onDuplicateNode?: (nodeId: string) => void
   /**
+   * Called when the user has drag-selected (or Ctrl-clicked) several nodes and
+   * triggered a bulk delete. The caller is responsible for the confirmation dialog.
+   */
+  onDeleteNodes?: (nodeIds: string[]) => void
+  /**
    * The id of a node that should immediately enter inline rename mode once React Flow
    * has measured and shown its card. Set when a node is freshly created, so the user
    * can type its name without opening the inspector.
@@ -208,6 +211,12 @@ export interface SpatialCanvasProps {
   autoRenameNodeId?: string | null
   /** Called once the auto-rename has been triggered, so the caller can clear the id. */
   onAutoRenameStarted?: () => void
+  /**
+   * Width of the inspector panel in pixels (0 when closed).
+   * Used to offset the pan-to-selected animation so the node lands in the centre of
+   * the visible canvas rather than behind the panel.
+   */
+  inspectorWidth?: number
   /**
    * File a node somewhere else: inside the node it was dropped on, or out to the ancestor
    * whose breadcrumb it was dropped on. Null means the top of the space.
@@ -240,8 +249,10 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
   onDeleteNode,
   onRenameNode,
   onDuplicateNode,
+  onDeleteNodes,
   autoRenameNodeId = null,
   onAutoRenameStarted,
+  inspectorWidth = 0,
   onReparentNode,
   onOpenNeighbor,
   onGoUp,
@@ -253,6 +264,9 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
   // Always up-to-date nodes without being a dep of the selection effect.
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
+
+  // Whether the inspector was open on the *previous* selection, to detect open vs already-open.
+  const inspectorWasOpenRef = useRef(false)
 
   /**
    * Exposes the viewport centre in flow coordinates so the parent can place new nodes
@@ -277,9 +291,23 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
    * toward the centre of the narrower canvas at exactly the rate the panel claims the
    * space on the right. The pan is triggered by `selectedNodeId` changing, not by any
    * node position update, so drags and collaborator edits do not interrupt reading.
+   *
+   * Offset maths: when the inspector is OPENING (was closed before this click), React
+   * Flow still thinks the canvas is full-width because its ResizeObserver fires after the
+   * CSS transition starts. `setCenter(cx, cy)` would therefore target the midpoint of the
+   * OLD width, placing the node behind the panel once it opens. Subtracting half the
+   * inspector width (in flow-space) from the x target corrects this so the node lands in
+   * the centre of the VISIBLE canvas. When the inspector was already open, React Flow
+   * already knows the narrower width and no correction is needed.
    */
   useEffect(() => {
-    if (!selectedNodeId) return
+    if (!selectedNodeId) {
+      inspectorWasOpenRef.current = false
+      return
+    }
+
+    const isOpening = !inspectorWasOpenRef.current
+    inspectorWasOpenRef.current = true
 
     const node = nodesRef.current.find((n) => n.id === selectedNodeId)
     if (!node) return
@@ -287,15 +315,19 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     const cx = node.position.x + (node.size?.width ?? 240) / 2
     const cy = node.position.y + (node.size?.height ?? 120) / 2
 
-    // One rAF so the inspector's CSS transition has already started and React Flow's
-    // ResizeObserver has had a chance to register the narrower container width.
     const frame = requestAnimationFrame(() => {
-      const zoom = instance.current?.getZoom() ?? 1
-      instance.current?.setCenter(cx, cy, { zoom, duration: 350 })
+      if (!instance.current) return
+      const zoom = instance.current.getZoom()
+      // Only apply the offset when the panel is transitioning from closed to open.
+      // Inspector sits on the RIGHT. To center the node in the VISIBLE canvas we need
+      // to shift the pan target RIGHT in flow-space (cx + offset) so the canvas scrolls
+      // LEFT, revealing the node to the left of the panel.
+      const panelOffset = isOpening ? inspectorWidth / 2 / zoom : 0
+      instance.current.setCenter(cx + panelOffset, cy, { zoom, duration: 350 })
     })
 
     return () => cancelAnimationFrame(frame)
-  }, [selectedNodeId])
+  }, [selectedNodeId, inspectorWidth])
 
   /**
    * Click-to-connect, as an alternative to dragging between handles.
@@ -306,6 +338,53 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
    * at all.
    */
   const [linkingFrom, setLinkingFrom] = useState<string | null>(null)
+
+  /**
+   * IDs of all nodes currently selected by the drag-selection rect or Ctrl/Meta+click.
+   *
+   * Kept separately from `selectedNodeId` (which drives the inspector) so that an area
+   * selection can include many nodes without opening multiple panels. When the count
+   * exceeds one, a floating action bar appears offering bulk operations.
+   */
+  const [multiSelectedIds, setMultiSelectedIds] = useState<ReadonlySet<string>>(new Set())
+
+  /**
+   * Read inside the flow-node sync without being one of its dependencies: the sync must
+   * not re-run merely because the selection count changed, or it would write to the
+   * store that produced the selection.
+   */
+  const multiSelectActiveRef = useRef(false)
+  multiSelectActiveRef.current = multiSelectedIds.size > 1
+
+  /**
+   * Tracks the area selection without feeding a render loop.
+   *
+   * React Flow calls this on every store update, so building a fresh Set each time would
+   * change state identity on every call -- which re-renders, which rebuilds the flow-node
+   * array, which updates the store, which calls this again. The ids are compared by
+   * content and the previous Set returned unchanged when nothing moved, so the cycle
+   * terminates. Nothing here writes back into React Flow's store, for the same reason.
+   */
+  const handleSelectionChange = useCallback(({ nodes: selected }: { nodes: CanvasNode[] }) => {
+    const ids = selected.filter((node) => node.type === 'documentation').map((node) => node.id)
+
+    setMultiSelectedIds((current) => {
+      if (current.size === ids.length && ids.every((id) => current.has(id))) return current
+
+      return new Set(ids)
+    })
+  }, [])
+
+  /*
+   * An area selection describes many nodes, so the single-node inspector is closed.
+   *
+   * Done here rather than inside the selection callback: writing the parent's selection
+   * state from within React Flow's own change callback re-enters its store and loops.
+   * The `selectedNodeId` guard means this fires once per selection, not once per render.
+   */
+  useEffect(() => {
+    if (multiSelectedIds.size > 1 && selectedNodeId) onSelectNode(null)
+  }, [multiSelectedIds, onSelectNode, selectedNodeId])
 
   // Which collaborators are sitting on which node, so a card can say who is there. Built
   // once per presence change rather than per card.
@@ -480,6 +559,10 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
 
         return {
           ...node,
+          // While an area selection is active, React Flow owns the selection: a server
+          // sync must not wipe what the user has just rubber-banded. Otherwise the
+          // domain owns it, so a selection made from search or navigation still lands.
+          selected: multiSelectActiveRef.current ? prior.selected ?? node.selected : node.selected,
           measured: prior.measured ?? node.measured,
           // A card under the pointer keeps the position the drag is giving it. The domain
           // still holds where it started -- it is not told until the drag ends -- so
@@ -749,20 +832,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     [editable, onCreateNodeAt, onDive],
   )
 
-  // The order the arrow keys walk, shared with the graph state so that a level arrived at
-  // by keyboard selects the same card the arrows would have started from.
-  const order = useMemo(() => readingOrder(nodes), [nodes])
-
-  /**
-   * Moves the selection to another card and takes the keyboard focus with it.
-   *
-   * The focus move is what makes the rest of the keyboard work: F2, Enter and the next
-   * arrow press are all read from the canvas, and a selection the browser has not
-   * followed would leave them firing at whatever was clicked last. The camera follows too
-   * -- cycling onto a card that is off-screen would otherwise look like the selection
-   * disappearing -- at the zoom the user is already at, so navigating never re-frames
-   * the level under them.
-   */
   /**
    * Parks the keyboard focus on the canvas itself before the level changes.
    *
@@ -776,39 +845,24 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     container.focus({ preventScroll: true })
   }, [])
 
-  const selectAndReveal = useCallback(
-    (nodeId: string, container: HTMLElement) => {
-      onSelectNode(nodeId)
-
-      const card = container.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)
-      card?.focus({ preventScroll: true })
-
-      const zoom = instance.current?.getZoom() ?? 1
-      instance.current?.fitView({ nodes: [{ id: nodeId }], maxZoom: zoom, duration: 160, padding: 0.4 })
-    },
-    [onSelectNode],
-  )
-
   /**
    * The canvas from the keyboard alone.
    *
    * Worth the code because this is a spatial interface, which is exactly the kind that
    * ends up mouse-only by default: every gesture here started as a drag, a double-click
    * or a hover-revealed button. The bindings are taken from file managers rather than
-   * invented, since that is the interface a drill-down canvas most resembles -- arrows to
-   * move through what is in front of you, Enter to go in, Escape to come back out.
+   * invented, since that is the interface a drill-down canvas most resembles -- Enter to
+   * go in, Escape to come back out.
    *
-   *   Arrows        next/previous card on this level, wrapping round
-   *   Shift+Arrows  nudge the selected card, which is what arrows alone used to do
+   *   Shift+Arrows  nudge the selected card one grid step
    *   Enter         open the selected card, the same as double-clicking it
    *   Escape        leave this level, or abandon a half-drawn link first
    *   F2            rename in place
    *
-   * Every branch stops the event rather than letting React Flow also act on it: its own
-   * keyboard handling moves a focused node with the arrow keys, which would otherwise
-   * drag a card across the canvas while the user was only trying to look at the next one.
-   * That gesture is kept, on Shift, because a keyboard user still needs some way to place
-   * a node.
+   * Bare arrows are swallowed and do nothing. React Flow's own keyboard handling drags a
+   * focused node with the arrow keys, and a plain arrow press should not move
+   * documentation across the canvas, so the event is stopped before it gets there. The
+   * nudge is kept on Shift, because a keyboard user still needs some way to place a node.
    */
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -866,32 +920,24 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
       }
 
       const step = ARROW_STEPS[event.key]
-      if (!step || order.length === 0) return
+      if (!step) return
 
+      // Arrows are swallowed either way. React Flow's own keyboard handling drags a
+      // focused card with the arrow keys, and a plain arrow press should not move
+      // documentation across the canvas -- so only Shift+arrow nudges, and bare arrows
+      // do nothing rather than falling through to it.
       event.preventDefault()
 
-      if (event.shiftKey) {
-        const node = nodes.find((candidate) => candidate.id === activeId)
-        if (!node || !editable) return
+      if (!event.shiftKey) return
 
-        onMoveNode(node.id, {
-          x: node.position.x + step.dx * GRID_SIZE,
-          y: node.position.y + step.dy * GRID_SIZE,
-          z: node.position.z,
-        })
+      const node = nodes.find((candidate) => candidate.id === activeId)
+      if (!node || !editable) return
 
-        return
-      }
-
-      const current = order.findIndex((node) => node.id === activeId)
-      // Wrapping, so the level is a loop rather than a line with two dead ends: on a
-      // canvas there is no "last" card in any direction a person can see.
-      const next =
-        current === -1
-          ? order[0]
-          : order[(current + step.forward + order.length) % order.length]
-
-      if (next) selectAndReveal(next.id, container)
+      onMoveNode(node.id, {
+        x: node.position.x + step.dx * GRID_SIZE,
+        y: node.position.y + step.dy * GRID_SIZE,
+        z: node.position.z,
+      })
     },
     [
       editable,
@@ -902,8 +948,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
       onDive,
       onMoveNode,
       onRenameNode,
-      order,
-      selectAndReveal,
       selectedNodeId,
     ],
   )
@@ -958,14 +1002,21 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
         // link mode that does not require aiming at anything.
         onPaneClick={() => {
           setLinkingFrom(null)
+          setMultiSelectedIds(new Set())
           onSelectNode(null)
         }}
+        onSelectionChange={handleSelectionChange}
         // The performance switch that matters: React Flow mounts only the nodes inside
         // the viewport, so a space with 10,000 nodes still renders the hundred on screen.
         onlyRenderVisibleElements
         nodesFocusable
         edgesFocusable
         panOnScroll
+        // Left-button drag draws the multi-select rectangle; scroll-wheel pans (panOnScroll).
+        // panOnDrag defaults to true which conflicts with selectionOnDrag -- disabling it
+        // means the user pans by scrolling (two-finger trackpad / scroll wheel) and draws
+        // a selection box by dragging on empty canvas.
+        panOnDrag={false}
         selectionOnDrag
         fitView
         fitViewOptions={{ padding: 0.25, maxZoom: 1.2 }}
@@ -1003,6 +1054,35 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
             ))}
         </ViewportPortal>
       </ReactFlow>
+
+      {/*
+        Floating action bar shown when the user has drag-selected (or Ctrl/Meta-clicked)
+        two or more nodes. Sits at the top-centre of the canvas, above any content, so it
+        never covers the selection it describes.
+      */}
+      {multiSelectedIds.size > 1 && editable ? (
+        <div
+          role="toolbar"
+          aria-label={`${multiSelectedIds.size} nodes selected`}
+          className="pointer-events-auto absolute top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-sm border border-border bg-popover px-3 py-1.5 shadow-md"
+        >
+          <span className="text-xs text-muted-foreground">
+            {multiSelectedIds.size} nodes selected
+          </span>
+          <div className="h-3 w-px bg-border" aria-hidden />
+          <button
+            type="button"
+            onClick={() => {
+              onDeleteNodes?.(Array.from(multiSelectedIds))
+              setMultiSelectedIds(new Set())
+            }}
+            className="flex items-center gap-1 rounded-xs px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Trash2 className="size-3" aria-hidden />
+            Delete selected
+          </button>
+        </div>
+      ) : null}
 
       {drop && editable ? (
         <div

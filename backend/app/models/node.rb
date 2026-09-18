@@ -11,6 +11,7 @@
 # of them owns the layout.
 class Node < ApplicationRecord
   belongs_to :documentation_space
+  belongs_to :deleted_by, class_name: "User", optional: true
 
   has_many :content_blocks, -> { ordered }, dependent: :destroy, inverse_of: :node
 
@@ -46,6 +47,20 @@ class Node < ApplicationRecord
             numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 10_000 }
   validate :metadata_must_be_a_bounded_object
 
+  # Soft deletion, applied by default.
+  #
+  # A `default_scope` rather than a `kept` scope every caller must remember. The choice is
+  # deliberate and it is about the failure mode: there are nine read paths into this table
+  # -- the graph snapshot, search, the subtree walk, the ancestor trail, three dataloaders,
+  # the wire serializer and the spaces index -- and forgetting the filter on any one of
+  # them shows a deleted node to a reader. Forgetting `with_deleted` in the one place that
+  # wants the bin back is a visibly empty list. One of those is a correctness bug and the
+  # other is obvious the first time you look.
+  default_scope { where(deleted_at: nil) }
+
+  scope :with_deleted, -> { unscope(where: :deleted_at) }
+  scope :only_deleted, -> { unscope(where: :deleted_at).where.not(deleted_at: nil) }
+
   scope :ordered, -> { order(:id) }
 
   # Viewport loading.
@@ -60,6 +75,10 @@ class Node < ApplicationRecord
 
   def position
     { x: x, y: y, z: z }
+  end
+
+  def deleted?
+    deleted_at.present?
   end
 
   private

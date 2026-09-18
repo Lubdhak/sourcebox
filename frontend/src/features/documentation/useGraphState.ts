@@ -85,7 +85,13 @@ export interface GraphStateApi {
   connectNodes: (sourceNodeId: string, targetNodeId: string, relationshipType: string) => Promise<void>
   reparentNode: (nodeId: string, newParentNodeId: string | null, fromParentNodeId?: string | null) => Promise<void>
   cloneNode: (nodeId: string, includeChildren: boolean) => Promise<void>
-  removeNode: (nodeId: string, cascade?: boolean) => Promise<void>
+  /**
+   * Drops nodes the server has already deleted, and reconciles.
+   *
+   * Deleting is `useNodeDeletion`'s job -- it owns the policy, the impact preview and the
+   * mutation. This is only the local aftermath.
+   */
+  forgetNodes: (nodeIds: string[]) => Promise<void>
   removeRelationship: (relationshipId: string) => Promise<void>
   refresh: () => Promise<void>
 
@@ -472,25 +478,43 @@ export function useGraphState({
     [refresh, reportFailure],
   )
 
-  const removeNode = useCallback(
-    async (nodeId: string, cascade = false) => {
-      setSaving(true)
+  /**
+   * Drops nodes the server has already deleted.
+   *
+   * The deletion itself is not here: it belongs to `useNodeDeletion`, which owns the
+   * policy and the impact and is the only caller of the delete mutation. This is the
+   * local consequence -- clear the selection if it pointed at one of them, then refetch,
+   * because a deletion also removes every edge touching those nodes and may re-home their
+   * children, and reproducing those rules client-side would be a second implementation of
+   * the thing the server just did.
+   */
+  const forgetNodes = useCallback(
+    async (nodeIds: string[]) => {
+      if (nodeIds.length === 0) return
 
-      try {
-        await api.deleteNode(nodeId, cascade)
+      const gone = new Set(nodeIds)
 
-        if (selectedNodeId === nodeId) setSelectedNodeId(null)
-        // Refetched rather than spliced locally, because deleting a node also deletes
-        // every edge touching it and the client would have to reproduce that rule to
-        // stay consistent.
-        await refresh()
-      } catch (err: unknown) {
-        reportFailure(err, 'frontend.documentation_delete_node_failed', 'Could not delete the node.')
-      } finally {
-        setSaving(false)
+      if (selectedNodeId && gone.has(selectedNodeId)) setSelectedNodeId(null)
+      // Spliced out immediately so the cards disappear on the click rather than after the
+      // round trip, then reconciled by the refetch below.
+      setGraph((current) => ({
+        ...current,
+        nodes: current.nodes.filter((node) => !gone.has(node.id)),
+        relationships: current.relationships.filter(
+          (edge) => !gone.has(edge.sourceNodeId) && !gone.has(edge.targetNodeId),
+        ),
+        nodeCount: Math.max(0, current.nodeCount - nodeIds.length),
+      }))
+
+      if (focusNodeId && gone.has(focusNodeId)) {
+        // The canvas was inside one of them. There is no folder left to show.
+        await focusOn(null)
+        return
       }
+
+      await refresh()
     },
-    [refresh, reportFailure, selectedNodeId],
+    [focusNodeId, focusOn, refresh, selectedNodeId],
   )
 
   const removeRelationship = useCallback(
@@ -704,7 +728,7 @@ export function useGraphState({
       connectNodes,
       reparentNode,
       cloneNode,
-      removeNode,
+      forgetNodes,
       removeRelationship,
       refresh,
       applyRealtime,
@@ -722,7 +746,7 @@ export function useGraphState({
       graph,
       moveNode,
       refresh,
-      removeNode,
+      forgetNodes,
       cloneNode,
       removeRelationship,
       renameNode,

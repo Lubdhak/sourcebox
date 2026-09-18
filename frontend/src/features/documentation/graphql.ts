@@ -3,9 +3,11 @@ import type {
   ContentBlock,
   ContentBlockData,
   ContentBlockKind,
-  DeletionImpact,
+  DeleteNodesResult,
+  DeletionPolicy,
   DocumentationNode,
   DocumentationSpace,
+  NodeDeletionImpact,
   NodeRelationship,
   SearchResult,
   SpaceGraph,
@@ -223,10 +225,88 @@ export const MOVE_NODES_MUTATION = /* GraphQL */ `
   }
 `
 
-export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($nodeId: ID!, $cascade: Boolean) {
-    deleteNode(input: { nodeId: $nodeId, cascade: $cascade }) {
-      deletedNodeId
+/**
+ * The deletion impact, as returned by both the query and the conflict branch of the
+ * mutation. Shared so the two cannot drift.
+ */
+const DELETION_IMPACT_FIELDS = /* GraphQL */ `
+  fragment DeletionImpactFields on NodeDeletionImpact {
+    digest
+    selected {
+      id
+      title
+      reason
+    }
+    orphans {
+      id
+      title
+      reason
+    }
+    retained {
+      id
+      title
+      reason
+    }
+    references {
+      id
+      kind
+      sourceId
+      sourceTitle
+      targetId
+      targetTitle
+    }
+    selectedCount
+    orphanCount
+    referenceCount
+    additionalDeleteCount
+    deleteCount
+    affectedCount
+    blockCount
+  }
+`
+
+export const DELETION_IMPACT_QUERY = /* GraphQL */ `
+  ${DELETION_IMPACT_FIELDS}
+  query NodesDeletionImpact(
+    $nodeIds: [ID!]!
+    $deletionMode: DeletionMode
+    $referencePolicy: ReferencePolicy
+    $orphanPolicy: OrphanPolicy
+  ) {
+    nodesDeletionImpact(
+      nodeIds: $nodeIds
+      deletionMode: $deletionMode
+      referencePolicy: $referencePolicy
+      orphanPolicy: $orphanPolicy
+    ) {
+      ...DeletionImpactFields
+    }
+  }
+`
+
+export const DELETE_NODES_MUTATION = /* GraphQL */ `
+  ${DELETION_IMPACT_FIELDS}
+  mutation DeleteNodes(
+    $nodeIds: [ID!]!
+    $deletionMode: DeletionMode
+    $referencePolicy: ReferencePolicy
+    $orphanPolicy: OrphanPolicy
+    $expectedDigest: String
+  ) {
+    deleteNodes(
+      input: {
+        nodeIds: $nodeIds
+        deletionMode: $deletionMode
+        referencePolicy: $referencePolicy
+        orphanPolicy: $orphanPolicy
+        expectedDigest: $expectedDigest
+      }
+    ) {
+      deletedNodeIds
+      changed
+      impact {
+        ...DeletionImpactFields
+      }
     }
   }
 `
@@ -404,15 +484,6 @@ export async function moveNodes(
   return data.moveNodes.nodes!
 }
 
-export async function deleteNode(nodeId: string, cascade = false): Promise<string> {
-  const data = await graphql<
-    { deleteNode: { deletedNodeId: string | null } },
-    { nodeId: string; cascade: boolean }
-  >(DELETE_NODE_MUTATION, { nodeId, cascade }, { operationName: 'DeleteNode' })
-
-  return data.deleteNode.deletedNodeId!
-}
-
 export const REPARENT_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation ReparentNode($nodeId: ID!, $newParentId: ID, $fromParentId: ID) {
@@ -458,43 +529,42 @@ export async function cloneNode(nodeId: string, includeChildren = false): Promis
   return data.cloneNode.node!
 }
 
-export const DELETION_IMPACT_QUERY = /* GraphQL */ `
-  query NodeDeletionImpact($nodeId: ID!) {
-    nodeDeletionImpact(nodeId: $nodeId) {
-      node {
-        id
-        title
-      }
-      descendants {
-        id
-        title
-      }
-      retained {
-        id
-        title
-      }
-      relationships {
-        id
-        relationshipType
-        sourceTitle
-        targetTitle
-      }
-      relationshipCount
-      descendantRelationshipCount
-      blockCount
-      descendantBlockCount
-    }
-  }
-`
-
-export async function fetchDeletionImpact(nodeId: string, options: RequestOptions = {}): Promise<DeletionImpact> {
-  const data = await graphql<{ nodeDeletionImpact: DeletionImpact }, { nodeId: string }>(
+/**
+ * What deleting this selection would do, under this policy.
+ *
+ * Re-requested whenever a policy option changes, because the answer changes with it.
+ * `signal` matters here: the dialog fires one of these per radio click and a slow earlier
+ * response must not overwrite a newer one.
+ */
+export async function fetchNodesDeletionImpact(
+  variables: { nodeIds: string[] } & Partial<DeletionPolicy>,
+  options: RequestOptions = {},
+): Promise<NodeDeletionImpact> {
+  const data = await graphql<{ nodesDeletionImpact: NodeDeletionImpact }, typeof variables>(
     DELETION_IMPACT_QUERY,
-    { nodeId },
-    { ...options, operationName: 'NodeDeletionImpact' },
+    variables,
+    { ...options, operationName: 'NodesDeletionImpact' },
   )
 
-  return data.nodeDeletionImpact
+  return data.nodesDeletionImpact
+}
+
+/**
+ * Deletes a selection under a policy.
+ *
+ * `expectedDigest` is the preview the user confirmed. When the server's recalculation no
+ * longer matches, it deletes nothing and returns `changed: true` with the fresh impact.
+ */
+export async function deleteNodes(
+  variables: { nodeIds: string[]; expectedDigest?: string } & Partial<DeletionPolicy>,
+): Promise<DeleteNodesResult> {
+  const data = await graphql<{ deleteNodes: DeleteNodesResult }, typeof variables>(
+    DELETE_NODES_MUTATION,
+    variables,
+    { operationName: 'DeleteNodes' },
+  )
+
+  return data.deleteNodes
 }
 
 export async function createRelationship(variables: {

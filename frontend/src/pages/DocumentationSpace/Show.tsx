@@ -4,7 +4,8 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
-import { DeleteNodeDialog, DuplicateNodeDialog } from '@/features/documentation/actions/NodeActionDialogs'
+import { DuplicateNodeDialog } from '@/features/documentation/actions/NodeActionDialogs'
+import { DeleteNodesDialog } from '@/features/documentation/deletion/DeleteNodesDialog'
 import { Breadcrumb } from '@/features/documentation/canvas/Breadcrumb'
 import { SpatialCanvas, type SpatialCanvasHandle } from '@/features/documentation/canvas/SpatialCanvas'
 import { PresenceBar } from '@/features/documentation/collaboration/PresenceBar'
@@ -61,6 +62,12 @@ export default function DocumentationSpaceShow({
   })
 
   const canvasRef = useRef<SpatialCanvasHandle>(null)
+  // Kept in sync by InspectorColumn.onWidthChange. Initialised from localStorage so the
+  // very first selection uses the correct offset even before the user resizes the panel.
+  const [inspectorWidth, setInspectorWidth] = useState(() => {
+    const saved = Number(window.localStorage.getItem('sourcebox:inspector-width'))
+    return Number.isFinite(saved) && saved > 0 ? Math.round(Math.min(Math.max(saved, 380), 960)) : 560
+  })
 
   const [pendingPosition, setPendingPosition] = useState<SpatialPosition | null>(null)
   /**
@@ -254,9 +261,26 @@ export default function DocumentationSpaceShow({
    * from has to live above it: the canvas unmounts and remounts cards freely as the
    * viewport moves, and a dialog owned by one of them would vanish mid-decision.
    */
-  const [deleting, setDeleting] = useState<string | null>(null)
+  /**
+   * The nodes the delete dialog is currently about.
+   *
+   * One list for both cases: a card's delete button opens it with one id, the canvas's
+   * bulk action bar opens it with many, and nothing downstream knows the difference.
+   */
+  const [deletingIds, setDeletingIds] = useState<string[]>([])
   const [duplicating, setDuplicating] = useState<string | null>(null)
   const nodeById = useCallback((nodeId: string | null) => graph.nodes.find((node) => node.id === nodeId) ?? null, [graph.nodes])
+
+  /**
+   * Titles by id, so the delete dialog can name a single node without refetching it.
+   *
+   * Only ever used for the one-node case: a bulk deletion is described by its count, and
+   * the dialog gets the full list from the server's impact anyway.
+   */
+  const nodeTitles = useMemo(
+    () => Object.fromEntries(graph.nodes.map((node) => [node.id, node.title])),
+    [graph.nodes],
+  )
 
   const duplicateNode = useCallback(
     (nodeId: string) => {
@@ -309,7 +333,7 @@ export default function DocumentationSpaceShow({
       onClose={() => selectNode(null)}
       onSelectNode={followLink}
       onTitleLoaded={history.remember}
-      onDeleteNode={setDeleting}
+      onDeleteNode={(nodeId) => setDeletingIds([nodeId])}
       onDeleteRelationship={(relationshipId) => void graph.removeRelationship(relationshipId)}
       onNodeChanged={() => void graph.refresh()}
     />
@@ -410,6 +434,7 @@ export default function DocumentationSpaceShow({
               peers={peers}
               autoRenameNodeId={autoRenameNodeId}
               onAutoRenameStarted={() => setAutoRenameNodeId(null)}
+              inspectorWidth={graph.selectedNodeId !== null ? inspectorWidth : 0}
               onSelectNode={selectNode}
               onMoveNode={graph.moveNode}
               onConnectNodes={handleConnectNodes}
@@ -417,7 +442,9 @@ export default function DocumentationSpaceShow({
               onDeleteRelationship={(relationshipId) => void graph.removeRelationship(relationshipId)}
               onDive={dive}
               onAscend={ascend}
-              onDeleteNode={setDeleting}
+              // Both paths open the same dialog. One id or many is the only difference.
+              onDeleteNode={(nodeId) => setDeletingIds([nodeId])}
+              onDeleteNodes={setDeletingIds}
               onRenameNode={(nodeId, title) => void graph.renameNode(nodeId, title)}
               onDuplicateNode={duplicateNode}
               onReparentNode={(nodeId, newParentNodeId) =>
@@ -442,14 +469,18 @@ export default function DocumentationSpaceShow({
               onCancel={() => setPendingConnection(null)}
             />
 
-            <DeleteNodeDialog
-              node={nodeById(deleting)}
-              open={deleting !== null}
-              onOpenChange={(open) => !open && setDeleting(null)}
-              onConfirm={(cascade) => {
-                const nodeId = deleting
-                setDeleting(null)
-                if (nodeId) void graph.removeNode(nodeId, cascade)
+            {/*
+              One dialog for one node and for twenty. The impact, the policy and the
+              deletion itself all live behind it -- this page only says which nodes.
+            */}
+            <DeleteNodesDialog
+              nodeIds={deletingIds}
+              open={deletingIds.length > 0}
+              onOpenChange={(open) => !open && setDeletingIds([])}
+              titles={nodeTitles}
+              onDeleted={(deletedIds) => {
+                setDeletingIds([])
+                void graph.forgetNodes(deletedIds)
               }}
             />
 
@@ -482,7 +513,7 @@ export default function DocumentationSpaceShow({
             </SheetContent>
           </Sheet>
         ) : (
-          <InspectorColumn open={graph.selectedNodeId !== null}>{inspector}</InspectorColumn>
+          <InspectorColumn open={graph.selectedNodeId !== null} onWidthChange={setInspectorWidth}>{inspector}</InspectorColumn>
         )}
       </div>
     </AppShell>

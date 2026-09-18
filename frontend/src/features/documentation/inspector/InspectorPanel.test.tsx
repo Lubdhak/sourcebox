@@ -50,7 +50,6 @@ const TABLE_BLOCK: ContentBlock = {
 function detail(overrides: Partial<NodeDetail> = {}): NodeDetail {
   return {
     id: '7',
-    nodeType: 'service',
     title: 'Payment Service',
     summary: 'Card capture and refunds.',
     position: { x: 120.4, y: -60.8, z: 1 },
@@ -64,7 +63,7 @@ function detail(overrides: Partial<NodeDetail> = {}): NodeDetail {
         sourceNodeId: '7',
         targetNodeId: '9',
         metadata: {},
-        targetNode: { id: '9', title: 'Payments Database', nodeType: 'database' },
+        targetNode: { id: '9', title: 'Payments Database' },
       },
     ],
     incomingRelationships: [
@@ -74,7 +73,7 @@ function detail(overrides: Partial<NodeDetail> = {}): NodeDetail {
         sourceNodeId: '3',
         targetNodeId: '7',
         metadata: {},
-        sourceNode: { id: '3', title: 'Order Service', nodeType: 'service' },
+        sourceNode: { id: '3', title: 'Order Service' },
       },
     ],
     ...overrides,

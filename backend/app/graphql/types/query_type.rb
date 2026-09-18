@@ -26,9 +26,22 @@ module Types
       argument :id, ID, description: "The node id."
     end
 
-    field :node_deletion_impact, Types::DeletionImpactType,
-          description: "What deleting one node would take with it. Read before asking the user to confirm." do
-      argument :node_id, ID, description: "The node that might be deleted."
+    field :nodes_deletion_impact, Types::NodeDeletionImpactType,
+          description: <<~DESC do
+            What deleting these nodes would do, under this policy.
+
+            The single source of truth for deletion consequences. Serves one node and
+            twenty identically -- a single deletion is a selection of one -- and is
+            re-requested whenever the user changes a policy option, because the answer
+            changes with it. The client never derives these numbers itself.
+          DESC
+      argument :node_ids, [ ID ], description: "The nodes that might be deleted."
+      argument :deletion_mode, Types::DeletionModeEnum, required: false,
+               description: "Whether the deletion would be recoverable. Defaults to `SOFT`."
+      argument :reference_policy, Types::ReferencePolicyEnum, required: false,
+               description: "What would happen to pointers at these nodes. Defaults to match the mode."
+      argument :orphan_policy, Types::OrphanPolicyEnum, required: false,
+               description: "What would happen to the nodes filed inside these. Defaults to `KEEP`."
     end
 
     field :search_documentation, [ Types::DocumentationSearchResultType ],
@@ -75,8 +88,21 @@ module Types
       authorize_within_space!(Node.find_by(id: id))
     end
 
-    def node_deletion_impact(node_id:)
-      Documentation::DeletionImpact.call(node: authorize_within_space!(Node.find_by(id: node_id)))
+    # Every node is authorized individually before any of them is read, because a
+    # selection is client-supplied and one id from another tenant's space would otherwise
+    # be enough to have this report that space's shape back.
+    def nodes_deletion_impact(node_ids:, deletion_mode: nil, reference_policy: nil, orphan_policy: nil)
+      nodes = Array(node_ids).uniq.map { |id| authorize_within_space!(Node.find_by(id: id), :write) }
+
+      Documentation::NodeDeletion.new(
+        nodes: nodes,
+        policy: Documentation::DeletionPolicy.new(
+          mode: deletion_mode,
+          reference_policy: reference_policy,
+          orphan_policy: orphan_policy
+        ),
+        actor: current_user
+      ).impact
     end
 
     def search_documentation(space_id:, query:, limit: nil)

@@ -133,21 +133,106 @@ class Documentation::MutationsTest < ActiveSupport::TestCase
     assert_equal 0, NodeRelationship.count
   end
 
-  test "deleteNode removes its content and edges and returns its id" do
+  test "deleteNodes hard-deletes content and edges and returns the ids" do
     node = create_node(space: @space)
     other = create_node(space: @space)
     create_relationship(source: node, target: other)
     create_block(node: node)
 
-    result = execute_graphql(<<~GQL, variables: { i: { nodeId: node.id.to_s } }, user: @user)
-      mutation($i: DeleteNodeInput!) { deleteNode(input: $i) { deletedNodeId } }
+    variables = { i: { nodeIds: [ node.id.to_s ], deletionMode: "HARD" } }
+
+    result = execute_graphql(<<~GQL, variables: variables, user: @user)
+      mutation($i: DeleteNodesInput!) {
+        deleteNodes(input: $i) { deletedNodeIds changed }
+      }
     GQL
 
     assert_no_graphql_errors(result)
-    assert_equal node.id.to_s, result.dig("data", "deleteNode", "deletedNodeId")
+    assert_equal [ node.id.to_s ], result.dig("data", "deleteNodes", "deletedNodeIds")
+    assert_equal false, result.dig("data", "deleteNodes", "changed")
     assert_equal 0, NodeRelationship.count
     assert_equal 0, ContentBlock.count
     assert_predicate other.reload, :persisted?
+  end
+
+  test "deleteNodes takes one node and many through the same field" do
+    first = create_node(space: @space, title: "First")
+    second = create_node(space: @space, title: "Second")
+
+    variables = { i: { nodeIds: [ first.id.to_s, second.id.to_s ], deletionMode: "HARD" } }
+
+    result = execute_graphql(<<~GQL, variables: variables, user: @user)
+      mutation($i: DeleteNodesInput!) { deleteNodes(input: $i) { deletedNodeIds } }
+    GQL
+
+    assert_no_graphql_errors(result)
+    assert_equal 2, result.dig("data", "deleteNodes", "deletedNodeIds").size
+    assert_nil Node.find_by(id: first.id)
+    assert_nil Node.find_by(id: second.id)
+  end
+
+  test "deleteNodes defaults to a recoverable delete" do
+    node = create_node(space: @space)
+
+    result = execute_graphql(<<~GQL, variables: { i: { nodeIds: [ node.id.to_s ] } }, user: @user)
+      mutation($i: DeleteNodesInput!) { deleteNodes(input: $i) { deletedNodeIds } }
+    GQL
+
+    assert_no_graphql_errors(result)
+    # Gone from every read path, still on disk.
+    assert_nil Node.find_by(id: node.id)
+    assert_predicate Node.with_deleted.find(node.id), :deleted?
+  end
+
+  test "deleteNodes refuses a stale confirmation instead of deleting the wrong set" do
+    node = create_node(space: @space)
+
+    variables = { i: { nodeIds: [ node.id.to_s ], expectedDigest: "a-digest-from-another-graph" } }
+
+    result = execute_graphql(<<~GQL, variables: variables, user: @user)
+      mutation($i: DeleteNodesInput!) {
+        deleteNodes(input: $i) { deletedNodeIds changed impact { digest deleteCount } }
+      }
+    GQL
+
+    assert_no_graphql_errors(result)
+    assert_equal true, result.dig("data", "deleteNodes", "changed")
+    assert_nil result.dig("data", "deleteNodes", "deletedNodeIds")
+    # The fresh impact comes back so the dialog can redraw rather than fail.
+    assert_predicate result.dig("data", "deleteNodes", "impact", "digest"), :present?
+    assert_predicate node.reload, :persisted?
+  end
+
+  test "nodesDeletionImpact reports the same shape for one node and for many" do
+    parent = create_node(space: @space, title: "Platform")
+    child = create_node(space: @space, title: "Order Service")
+    create_relationship(source: parent, target: child, relationship_type: "contains")
+
+    variables = { ids: [ parent.id.to_s ], orphanPolicy: "DELETE" }
+
+    result = execute_graphql(<<~GQL, variables: variables, user: @user)
+      query($ids: [ID!]!, $orphanPolicy: OrphanPolicy) {
+        nodesDeletionImpact(nodeIds: $ids, orphanPolicy: $orphanPolicy) {
+          digest
+          selectedCount
+          orphanCount
+          deleteCount
+          additionalDeleteCount
+          orphans { id title reason }
+        }
+      }
+    GQL
+
+    assert_no_graphql_errors(result)
+    impact = result.dig("data", "nodesDeletionImpact")
+
+    assert_equal 1, impact["selectedCount"]
+    assert_equal 1, impact["orphanCount"]
+    # Deleting the disconnected node too means two rows go, not one.
+    assert_equal 2, impact["deleteCount"]
+    assert_equal 1, impact["additionalDeleteCount"]
+    assert_equal "Order Service", impact.dig("orphans", 0, "title")
+    assert_predicate impact.dig("orphans", 0, "reason"), :present?
   end
 
   test "upsertContentBlock returns the node so the client sees renumbered siblings" do

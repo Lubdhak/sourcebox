@@ -39,7 +39,16 @@ function storedWidth(): number {
   return clamp(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_WIDTH)
 }
 
-export function InspectorColumn({ open, children }: { open: boolean; children: React.ReactNode }) {
+export function InspectorColumn({
+  open,
+  children,
+  onWidthChange,
+}: {
+  open: boolean
+  children: React.ReactNode
+  /** Called whenever the panel is resized, so the parent can pass the width to the canvas. */
+  onWidthChange?: (width: number) => void
+}) {
   const [width, setWidth] = useState(storedWidth)
   const [dragging, setDragging] = useState(false)
 
@@ -48,6 +57,7 @@ export function InspectorColumn({ open, children }: { open: boolean; children: R
   const resize = useCallback((next: number) => {
     const clamped = clamp(next)
     setWidth(clamped)
+    onWidthChange?.(clamped)
 
     // Written on a trailing timer rather than per pointer move: a drag is a hundred
     // events and localStorage is synchronous.

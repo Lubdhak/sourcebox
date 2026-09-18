@@ -105,68 +105,47 @@ class Documentation::NodeHierarchyTest < ActiveSupport::TestCase
 
   # --- Deleting ---------------------------------------------------------
 
+  # Deletion itself is covered in full by node_deletion_test.rb, which owns the policy
+  # matrix. These two stay here because they are hierarchy behaviour: what happens to the
+  # shape of the graph around a node that goes.
+
   test "deleting a node moves the nodes inside it up to where it was" do
-    Documentation::DeleteNode.call(node: @orders, actor: @user)
+    delete(@orders)
 
     assert_nil Node.find_by(id: @orders.id)
     assert_equal [ @platform.id ], parent_ids_of(@table),
                  "Work filed under a grouping must survive the grouping, in its place"
   end
 
-  test "deleting a node with cascade takes everything inside it" do
-    Documentation::DeleteNode.call(node: @orders, cascade: true, actor: @user)
+  test "deleting the disconnected nodes too takes everything inside" do
+    delete(@orders, orphan_policy: "delete")
 
     assert_nil Node.find_by(id: @orders.id)
     assert_nil Node.find_by(id: @table.id)
     assert Node.exists?(@platform.id)
   end
 
-  test "a cascading delete spares a node that also lives somewhere else" do
+  test "deleting the disconnected nodes spares one that also lives somewhere else" do
     billing = create_node(space: @space, title: "Billing Service")
     contain(billing, @table)
 
-    Documentation::DeleteNode.call(node: @orders, cascade: true, actor: @user)
+    delete(@orders, orphan_policy: "delete")
 
     assert Node.exists?(@table.id), "It still lives inside Billing, so it is not gone"
     assert_equal [ billing.id ], parent_ids_of(@table)
   end
 
-  test "the deletion impact names what would go and what would stay" do
-    billing = create_node(space: @space, title: "Billing Service")
-    shared = create_node(space: @space, title: "users table")
-    contain(@orders, shared)
-    contain(billing, shared)
-    create_block(node: @table)
-
-    impact = Documentation::DeletionImpact.call(node: @orders)
-
-    assert_equal [ "orders table" ], impact.descendants.map(&:title)
-    assert_equal [ "users table" ], impact.retained.map(&:title)
-    # The node's own content and its descendants' are counted apart, because only one
-    # button removes the second kind.
-    assert_equal 0, impact.block_count
-    assert_equal 1, impact.descendant_block_count
-  end
-
-  test "the deletion impact says what every edge is, not how many there are" do
-    gateway = create_node(space: @space, title: "Payments Gateway")
-    create_relationship(source: gateway, target: @orders, relationship_type: "calls")
-
-    impact = Documentation::DeletionImpact.call(node: @orders)
-
-    # A confirmation has to be readable without resolving ids: both ends and the verb.
-    assert_equal(
-      [
-        [ "calls", "Payments Gateway", "Order Service" ],
-        [ "contains", "Platform", "Order Service" ],
-        [ "contains", "Order Service", "orders table" ],
-      ].sort,
-      impact.relationships.map { |edge| [ edge.relationship_type, edge.source_title, edge.target_title ] }.sort
-    )
-    assert_equal 3, impact.relationship_count
-  end
-
   private
+
+  # Hard, because these tests assert on rows being gone. Soft deletion is the product
+  # default and is exercised in node_deletion_test.rb.
+  def delete(node, orphan_policy: "keep")
+    Documentation::NodeDeletion.new(
+      nodes: [ node ],
+      policy: Documentation::DeletionPolicy.new(mode: "hard", orphan_policy: orphan_policy),
+      actor: @user
+    ).call
+  end
 
   def contain(parent, child)
     create_relationship(source: parent, target: child, relationship_type: "contains")
