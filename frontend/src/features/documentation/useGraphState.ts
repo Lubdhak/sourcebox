@@ -76,7 +76,6 @@ export interface GraphStateApi {
 
   addNode: (attributes: {
     title: string
-    nodeType?: string
     x: number
     y: number
     parentNodeId?: string | null
@@ -322,7 +321,6 @@ export function useGraphState({
         const node = await api.createNode({
           spaceId,
           title: attributes.title,
-          nodeType: attributes.nodeType,
           x: attributes.x,
           y: attributes.y,
           parentNodeId: attributes.parentNodeId ?? null,
@@ -344,8 +342,6 @@ export function useGraphState({
 
         if (parentNodeId !== focusNodeId) await focusOn(parentNodeId)
         else await refresh()
-
-        setSelectedNodeId(node.id)
 
         return node
       } catch (err: unknown) {

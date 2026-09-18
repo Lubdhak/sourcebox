@@ -155,9 +155,6 @@ export function SearchPanel({
               >
                 <span className="flex items-baseline gap-2">
                   <span className="truncate text-sm">{result.node.title}</span>
-                  <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">
-                    {result.node.nodeType}
-                  </span>
                 </span>
                 {result.snippet ? (
                   <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">

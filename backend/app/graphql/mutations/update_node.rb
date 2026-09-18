@@ -11,7 +11,6 @@ module Mutations
 
     argument :node_id, ID, description: "The node to update."
     argument :title, String, required: false
-    argument :node_type, String, required: false
     argument :summary, String, required: false
     argument :width, Float, required: false
     argument :height, Float, required: false
@@ -36,7 +35,7 @@ module Mutations
     private
 
     def normalize(attributes)
-      attributes.slice(:title, :node_type, :summary, :width, :height, :depth, :metadata)
+      attributes.slice(:title, :summary, :width, :height, :depth, :metadata)
     end
   end
 end

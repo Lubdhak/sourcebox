@@ -8,7 +8,7 @@ module Documentation
   # splitting it across three mutations would let a failure leave a titled node with no
   # content and no place in the graph.
   class CreateNode < Operation
-    def initialize(space:, title:, node_type: "service", summary: nil,
+    def initialize(space:, title:, summary: nil,
                    x: 0.0, y: 0.0, z: 0.0, width: nil, height: nil, depth: nil,
                    metadata: {}, blocks: [], parent_node_id: nil,
                    parent_relationship_type: NodeRelationship::HIERARCHICAL_TYPE, **options)
@@ -17,7 +17,6 @@ module Documentation
       @space = space
       @attributes = {
         title: title,
-        node_type: node_type.presence || "service",
         summary: summary,
         x: x, y: y, z: z,
         metadata: metadata || {},
@@ -53,7 +52,6 @@ module Documentation
         Events::Names::DOCUMENTATION_NODE_CREATED,
         space_id: @space.id,
         node_id: node.id,
-        node_type: node.node_type,
         block_count: @blocks.size
       )
 

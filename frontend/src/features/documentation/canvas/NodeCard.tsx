@@ -85,7 +85,7 @@ export const NodeCard = memo(function NodeCard({
   const { node, blockCount, actions, linking, editable, presentEditors, dropTarget } = data
   const childCount = node.childCount ?? 0
   const parents = node.parents ?? []
-  const lineage = describeLineage(node.nodeType, parents)
+  const lineage = describeLineage(parents)
 
   /*
    * Renaming in place.
@@ -282,29 +282,16 @@ export const NodeCard = memo(function NodeCard({
 })
 
 /**
- * "a database of Storefront Platform", or "a concept at the top of the space".
+ * "inside Storefront Platform", or "at the top of the space".
  *
- * The node's own type carries the phrase rather than the containment verb, which would
- * read "a contains of Storefront Platform" and say the same thing on every card in the
- * space. The type varies, and paired with the parent it answers both halves of "what is
- * this and where does it sit" in one line.
- *
- * Types are written as stored, underscores and all: they are the team's own vocabulary
- * -- `external_system`, `data_store` -- and tidying them here would make the card
- * disagree with the inspector and the search results.
- *
- * Further parents are counted rather than named. A node inside three systems has no
- * primary one to print, and the control beside this opens the full list.
+ * Answers "where does this node sit" in one short line. Further parents are counted
+ * rather than named -- a node inside three systems has no single primary one.
  */
-function describeLineage(nodeType: string, parents: NodeParent[]): string {
-  const article = /^[aeiou]/i.test(nodeType) ? 'an' : 'a'
+function describeLineage(parents: NodeParent[]): string {
   const first = parents[0]
-
-  if (!first) return `${article} ${nodeType} at the top of the space`
-
+  if (!first) return 'at the top of the space'
   const others = parents.length - 1
-
-  return `${article} ${nodeType} of ${first.title}${others > 0 ? ` +${others}` : ''}`
+  return `in ${first.title}${others > 0 ? ` +${others}` : ''}`
 }
 
 /**

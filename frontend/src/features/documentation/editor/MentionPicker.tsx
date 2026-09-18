@@ -15,7 +15,6 @@ import { cn } from '@/lib/utils'
 export interface MentionCandidate {
   id: string
   title: string
-  nodeType?: string
 }
 
 const MENTION_DEBOUNCE_MS = 150
@@ -118,11 +117,6 @@ export function MentionPicker({
             )}
           >
             <span className="min-w-0 flex-1 truncate text-sm">{candidate.title}</span>
-            {candidate.nodeType ? (
-              <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">
-                {candidate.nodeType}
-              </span>
-            ) : null}
           </button>
         ))
       )}

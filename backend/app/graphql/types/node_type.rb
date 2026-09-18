@@ -9,12 +9,6 @@ module Types
     DESC
 
     field :id, ID
-    field :node_type, String,
-          description: <<~DESC
-            What kind of thing this node represents, for example `service` or `table`.
-
-            A free-form string: the set of things a team might document is open-ended.
-          DESC
     field :title, String
     field :summary, String, null: true
 

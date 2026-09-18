@@ -56,7 +56,6 @@ module Documentation
       def node(node, child_count: nil, parent_id: nil, parents: nil)
         {
           id: node.id.to_s,
-          nodeType: node.node_type,
           title: node.title,
           summary: node.summary,
           position: { x: node.x, y: node.y, z: node.z },

@@ -1,12 +1,12 @@
 import { Head } from '@inertiajs/react'
 import { Plus } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { DeleteNodeDialog, DuplicateNodeDialog } from '@/features/documentation/actions/NodeActionDialogs'
 import { Breadcrumb } from '@/features/documentation/canvas/Breadcrumb'
-import { SpatialCanvas } from '@/features/documentation/canvas/SpatialCanvas'
+import { SpatialCanvas, type SpatialCanvasHandle } from '@/features/documentation/canvas/SpatialCanvas'
 import { PresenceBar } from '@/features/documentation/collaboration/PresenceBar'
 import { useSpaceChannel } from '@/features/documentation/collaboration/useSpaceChannel'
 import { InspectorColumn } from '@/features/documentation/inspector/InspectorColumn'
@@ -60,7 +60,17 @@ export default function DocumentationSpaceShow({
     onGraphMessage: graph.applyRealtime,
   })
 
+  const canvasRef = useRef<SpatialCanvasHandle>(null)
+
   const [pendingPosition, setPendingPosition] = useState<SpatialPosition | null>(null)
+  /**
+   * The id of the node most recently added by this client, if any.
+   *
+   * Passed to the canvas so it can auto-start renaming the card as soon as React Flow
+   * has measured and shown it -- without opening the inspector panel. The user can type
+   * the name directly on the card.
+   */
+  const [autoRenameNodeId, setAutoRenameNodeId] = useState<string | null>(null)
 
   // Where the inspector has been, so a link it followed can be walked back the way it
   // came. Every callback below that moves the *canvas* clears it: those are moves around
@@ -82,24 +92,33 @@ export default function DocumentationSpaceShow({
 
       setPendingPosition(null)
 
-      if (node) {
-        publishPresence({ focusNodeId: node.parents?.[0]?.id ?? null, selectedNodeId: node.id })
-      }
-    },
-    [graph, history, publishPresence],
-  )
+    if (node) {
+      // Signal the canvas to auto-rename the new card (inline, without opening the
+      // inspector). No node is selected, so the panel stays closed.
+      setAutoRenameNodeId(node.id)
+      publishPresence({ focusNodeId: node.parents?.[0]?.id ?? null, selectedNodeId: null })
+    }
+  },
+  [graph, history, publishPresence],
+)
 
-  const scatteredPosition = useCallback(
-    (): SpatialPosition => ({
-      // No viewport information here, so new nodes from a toolbar are scattered near the
-      // origin rather than stacked exactly on top of each other. Double-clicking the
-      // canvas is the placement-aware path.
-      x: Math.round((Math.random() - 0.5) * 400),
-      y: Math.round((Math.random() - 0.5) * 300),
+  const scatteredPosition = useCallback((): SpatialPosition => {
+    // Nodes added from the toolbar always land near the centre of what the user can
+    // currently see, not at the graph origin. A small random offset stops them from
+    // stacking exactly on top of each other when several are added in a row.
+    const offset = {
+      x: Math.round((Math.random() - 0.5) * 200),
+      y: Math.round((Math.random() - 0.5) * 150),
+    }
+
+    const center = canvasRef.current?.getViewportCenter()
+
+    return {
+      x: (center?.x ?? 0) + offset.x,
+      y: (center?.y ?? 0) + offset.y,
       z: 0,
-    }),
-    [],
-  )
+    }
+  }, [])
 
   const addNodeAtCentre = useCallback(() => {
     void createNodeAt(scatteredPosition())
@@ -380,6 +399,7 @@ export default function DocumentationSpaceShow({
             ) : null}
 
             <SpatialCanvas
+              ref={canvasRef}
               nodes={graph.nodes}
               relationships={graph.relationships}
               neighbors={graph.neighbors}
@@ -388,6 +408,8 @@ export default function DocumentationSpaceShow({
               focusKey={graph.focusNodeId ?? 'root'}
               editable={mayEdit}
               peers={peers}
+              autoRenameNodeId={autoRenameNodeId}
+              onAutoRenameStarted={() => setAutoRenameNodeId(null)}
               onSelectNode={selectNode}
               onMoveNode={graph.moveNode}
               onConnectNodes={handleConnectNodes}

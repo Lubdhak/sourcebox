@@ -66,7 +66,6 @@ class DocumentationSpacesController < ApplicationController
       # The vocabularies the editor offers. Server-owned, because the model validates
       # against the same constants, and sending them means the frontend does not keep a
       # second copy that can drift.
-      nodeTypes: Node::SUGGESTED_TYPES,
       relationshipTypes: NodeRelationship::SUGGESTED_TYPES,
       blockTypes: ContentBlock::TYPES.map(&:upcase),
       # Who the client is, for its own presence marker. Everyone else's identity arrives

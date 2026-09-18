@@ -8,7 +8,7 @@ module Documentation
   # and giving them one entry point would mean either validating a whole node on every
   # frame of a drag or skipping validation when a title changes.
   class UpdateNode < Operation
-    ASSIGNABLE = %i[title node_type summary width height depth].freeze
+    ASSIGNABLE = %i[title summary width height depth].freeze
 
     def initialize(node:, attributes:, **options)
       super(**options)

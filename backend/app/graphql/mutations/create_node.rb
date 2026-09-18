@@ -6,8 +6,6 @@ module Mutations
 
     argument :space_id, ID, description: "The space to add the node to."
     argument :title, String, description: "What the node is called."
-    argument :node_type, String, required: false,
-             description: "What kind of thing it represents. Free-form; defaults to `service`."
     argument :summary, String, required: false, description: "One-line description."
     argument :x, Float, required: false, description: "Initial x coordinate."
     argument :y, Float, required: false, description: "Initial y coordinate."
@@ -39,7 +37,6 @@ module Mutations
       node = Documentation::CreateNode.call(
         space: space,
         title: title,
-        node_type: attributes[:node_type],
         summary: attributes[:summary],
         x: attributes[:x] || 0.0,
         y: attributes[:y] || 0.0,

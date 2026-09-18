@@ -45,10 +45,9 @@ SEED_LAYERS = [
 
 # Most nodes are one card and one paragraph. Only the ones a reader is expected to stop at
 # carry several blocks, and those are written out in full below.
-one = lambda do |title, node_type, summary, text, metadata = {}|
+one = lambda do |title, _node_type, summary, text, metadata = {}|
   {
     title: title,
-    node_type: node_type,
     summary: summary,
     metadata: metadata,
     blocks: [ { block_type: "text", data: { "text" => text } } ]
@@ -59,7 +58,6 @@ end
 FIELD_NODES = [
   {
     title: "System Design",
-    node_type: "concept",
     summary: "Choosing which guarantees to give up, and being able to say why.",
     metadata: { "kind" => "field", "status" => "living" },
     blocks: [
@@ -116,7 +114,6 @@ FIELD_NODES = [
 AREA_NODES = [
   {
     title: "Scaling & Load",
-    node_type: "concept",
     summary: "Getting more work through the system than one machine can do.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -150,7 +147,6 @@ AREA_NODES = [
   },
   {
     title: "Data Storage",
-    node_type: "concept",
     summary: "Where the truth lives, how it survives a lost disk, and how it is found again.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -171,7 +167,6 @@ AREA_NODES = [
   },
   {
     title: "Caching",
-    node_type: "concept",
     summary: "Trading freshness for latency, on purpose and with an expiry.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -196,7 +191,6 @@ AREA_NODES = [
   },
   {
     title: "Messaging & Streams",
-    node_type: "concept",
     summary: "Work handed over instead of waited on.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -217,7 +211,6 @@ AREA_NODES = [
   },
   {
     title: "Consistency & Coordination",
-    node_type: "concept",
     summary: "Getting independent machines to agree, and paying for it.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -239,7 +232,6 @@ AREA_NODES = [
   },
   {
     title: "Networking & APIs",
-    node_type: "concept",
     summary: "The contracts and the wires between the parts.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -262,7 +254,6 @@ AREA_NODES = [
   },
   {
     title: "Reliability & Operations",
-    node_type: "concept",
     summary: "Behaving predictably while parts of the system are missing.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -297,7 +288,6 @@ AREA_NODES = [
   },
   {
     title: "Platform & Deployment",
-    node_type: "concept",
     summary: "How the code reaches machines, and how those machines are replaced.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -319,7 +309,6 @@ AREA_NODES = [
   },
   {
     title: "Failure Modes",
-    node_type: "concept",
     summary: "The named ways distributed systems come apart, and what answers each.",
     metadata: { "kind" => "area" },
     blocks: [
@@ -349,7 +338,6 @@ CONCEPT_NODES = [
        "Adding machines only adds throughput for work that shares nothing. The instant a request depends on in-memory state, the second machine is not a copy -- it is a new correctness problem, and the state has to move into a store, a cache, or a partition owner."),
   {
     title: "Load Balancing",
-    node_type: "concept",
     summary: "Choosing which replica serves each request, and noticing when one should not.",
     blocks: [
       {
@@ -384,7 +372,6 @@ CONCEPT_NODES = [
   # -- Data Storage
   {
     title: "Replication",
-    node_type: "concept",
     summary: "The same data on several machines: read throughput and survivability, at a price.",
     blocks: [
       {
@@ -418,7 +405,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Sharding",
-    node_type: "concept",
     summary: "Splitting one dataset across machines by key, so writes scale too.",
     blocks: [
       {
@@ -439,7 +425,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Indexing",
-    node_type: "concept",
     summary: "A second structure that answers a question without reading everything.",
     blocks: [
       {
@@ -465,7 +450,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Storage Engines",
-    node_type: "concept",
     summary: "How bytes actually reach a disk, and which access pattern that favours.",
     blocks: [
       {
@@ -485,7 +469,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Data Models",
-    node_type: "concept",
     summary: "Relational, document, key-value, wide-column, graph, columnar -- and what each refuses to do.",
     blocks: [
       {
@@ -515,7 +498,6 @@ CONCEPT_NODES = [
   # -- Caching
   {
     title: "Cache Placement",
-    node_type: "concept",
     summary: "Where the copy lives: in the process, beside it, or at the edge.",
     blocks: [
       {
@@ -534,7 +516,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Cache Invalidation",
-    node_type: "concept",
     summary: "Deciding when a copy stops being an acceptable answer.",
     blocks: [
       {
@@ -569,7 +550,6 @@ CONCEPT_NODES = [
        "The publisher's ignorance is the feature: a fourth consumer can be added without touching the code that emits the event. It is also the cost -- nobody can tell you, from the publisher's source, what happens after a publish."),
   {
     title: "Delivery Guarantees",
-    node_type: "concept",
     summary: "At-most-once, at-least-once, and the exactly-once that is really two mechanisms.",
     blocks: [
       {
@@ -591,7 +571,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Event Sourcing",
-    node_type: "concept",
     summary: "Storing what happened, and deriving current state from it.",
     blocks: [
       {
@@ -620,7 +599,6 @@ CONCEPT_NODES = [
   # -- Consistency & Coordination
   {
     title: "CAP Theorem",
-    node_type: "business_rule",
     summary: "While the network is partitioned, a system may stay consistent or stay available.",
     metadata: { "kind" => "constraint" },
     blocks: [
@@ -661,7 +639,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Consistency Models",
-    node_type: "concept",
     summary: "The ladder from linearizable to eventual, and what each one lets you stop checking.",
     blocks: [
       {
@@ -688,7 +665,6 @@ CONCEPT_NODES = [
        "Consensus is what you use to decide who the leader is, not what you use on the request path. Almost every design that puts agreement into each write is really asking for a single owner per key instead."),
   {
     title: "Isolation Levels",
-    node_type: "concept",
     summary: "How much of another in-flight transaction a transaction is allowed to see.",
     blocks: [
       {
@@ -714,7 +690,6 @@ CONCEPT_NODES = [
        "Two options, and neither is free: block until everyone commits, or let each step commit alone and write the compensation for every step that might have to be undone. The third option -- usually the right one -- is to redraw the boundary so the transaction fits in one store."),
   {
     title: "Idempotency",
-    node_type: "concept",
     summary: "Doing the same operation twice leaves the same result as doing it once.",
     blocks: [
       {
@@ -749,7 +724,6 @@ CONCEPT_NODES = [
   # -- Networking & APIs
   {
     title: "API Styles",
-    node_type: "api",
     summary: "REST, gRPC and GraphQL answer different questions about who shapes the response.",
     blocks: [
       {
@@ -783,7 +757,6 @@ CONCEPT_NODES = [
        "Polling turns a rare event into constant load; a held connection turns it into a push at the cost of state per client. The decision is usually how many clients times how much memory per connection, and whether a proxy in between will tolerate a socket open for hours."),
   {
     title: "Serialization",
-    node_type: "concept",
     summary: "How a structure becomes bytes, and whether tomorrow's reader understands today's bytes.",
     blocks: [
       {
@@ -808,7 +781,6 @@ CONCEPT_NODES = [
   # -- Reliability & Operations
   {
     title: "Circuit Breaker",
-    node_type: "concept",
     summary: "Failing fast on a dependency that is already failing.",
     blocks: [
       {
@@ -839,7 +811,6 @@ CONCEPT_NODES = [
        "Past saturation, accepting everything means finishing nothing: every request sits in a queue longer than its own timeout and is thrown away after being paid for. Shedding early -- by priority, by queue depth, by measured latency -- is how throughput stays flat instead of collapsing."),
   {
     title: "Observability",
-    node_type: "concept",
     summary: "Being able to answer a question about production you did not anticipate.",
     blocks: [
       {
@@ -861,7 +832,6 @@ CONCEPT_NODES = [
   },
   {
     title: "Service Level Objectives",
-    node_type: "business_rule",
     summary: "A written number that makes \"fast enough\" falsifiable.",
     blocks: [
       {
@@ -898,7 +868,6 @@ CONCEPT_NODES = [
        "The signal is the whole design. CPU is easy and lags badly; queue depth or in-flight requests track the actual backlog; a schedule beats both for traffic you already know is coming. And scaling out only helps if the thing you scale is not waiting on a database that did not."),
   {
     title: "Deployment Strategies",
-    node_type: "workflow",
     summary: "Replacing running code while it is serving, and being able to undo it.",
     blocks: [
       {
@@ -933,7 +902,6 @@ CONCEPT_NODES = [
        { "kind" => "failure mode" }),
   {
     title: "Thundering Herd",
-    node_type: "concept",
     summary: "A popular key expires and every request for it hits the store at once.",
     metadata: { "kind" => "failure mode" },
     blocks: [
@@ -1003,7 +971,6 @@ MECHANISM_NODES = [
        "A layer 4 balancer moves packets and cannot see a URL; it is cheap and it cannot retry. A layer 7 balancer parses HTTP, so it can route by path, retry an idempotent GET, and enforce a timeout -- at the cost of terminating the connection and becoming a thing that can be CPU-bound."),
   {
     title: "Consistent Hashing",
-    node_type: "concept",
     summary: "Mapping keys to machines so adding one moves 1/N of the keys, not all of them.",
     metadata: { "note" => "Belongs to load balancing and to sharding; the same trick answers both." },
     blocks: [
@@ -1047,7 +1014,6 @@ MECHANISM_NODES = [
        "A TCP connect succeeds while the app is deadlocked, so the check has to exercise something real -- and then distinguish liveness (restart me) from readiness (do not send me traffic yet). Getting that pair wrong is how a rolling deploy takes down a service that never actually broke."),
   {
     title: "Token Bucket",
-    node_type: "concept",
     summary: "A refilling allowance that permits bursts up to its size and no more on average.",
     blocks: [
       {
@@ -1082,7 +1048,6 @@ MECHANISM_NODES = [
        "The same IP is advertised from hundreds of sites and BGP routes each user to the closest one, which is why an edge provider needs no DNS trickery to be local. It also means a point of presence can be drained by withdrawing a route, and traffic simply arrives somewhere else."),
   {
     title: "HTTP Cache Headers",
-    node_type: "concept",
     summary: "Cache-Control, ETag and the revalidation dance, which most caches obey for free.",
     metadata: { "note" => "The one invalidation mechanism that spans your cache, every proxy and every browser." },
     blocks: [
@@ -1114,7 +1079,6 @@ MECHANISM_NODES = [
        "Everything hard about replication is in the promotion. Who notices the leader is gone, who decides, how the old leader is stopped from continuing to accept writes when it comes back -- and whether the candidate with the most data is the one that wins."),
   {
     title: "Write-Ahead Log",
-    node_type: "concept",
     summary: "Record the intent durably before touching the data, and recovery becomes a replay.",
     metadata: { "note" => "The same log is both the durability mechanism and the replication stream." },
     blocks: [
@@ -1126,7 +1090,6 @@ MECHANISM_NODES = [
   },
   {
     title: "Quorum Reads and Writes",
-    node_type: "concept",
     summary: "With R + W > N, a read is guaranteed to see the newest acknowledged write.",
     blocks: [
       {
@@ -1159,7 +1122,6 @@ MECHANISM_NODES = [
        "Every write is sequential, which is why write-heavy stores choose this shape. Reads may have to consult several files, and the deferred merge -- compaction -- is real work that shows up later as I/O nobody scheduled."),
   {
     title: "Bloom Filter",
-    node_type: "concept",
     summary: "A few bits per key that can say \"definitely not here\" and never \"definitely here\".",
     blocks: [
       {
@@ -1270,7 +1232,6 @@ MECHANISM_NODES = [
        "No triggers, no polling, no extra write path -- just the log the store already writes, decoded into row-level changes. The operational catch is the retained position: a connector that is down long enough for the log to be recycled cannot resume without a fresh snapshot."),
   {
     title: "Transactional Outbox",
-    node_type: "workflow",
     summary: "Write the event to a table in the same transaction as the data, publish it after.",
     metadata: { "note" => "The answer to \"how do I update a row and publish an event atomically?\"" },
     blocks: [
@@ -1312,7 +1273,6 @@ MECHANISM_NODES = [
        "The honest questions are how long \"eventually\" is under load, and what happens to two conflicting writes: last-write-wins silently discards one, so anything valuable needs either a single owner per key or a merge function that cannot lose data."),
   {
     title: "Raft",
-    node_type: "concept",
     summary: "Leader election plus an append-only log: consensus a person can hold in their head.",
     blocks: [
       {
@@ -1338,7 +1298,6 @@ MECHANISM_NODES = [
        "Correct, and fragile in a specific way: a participant that has voted yes may not decide alone, so if the coordinator dies between phases the locks stay held until it returns. Atomicity bought with availability."),
   {
     title: "Saga",
-    node_type: "workflow",
     summary: "Local commits in sequence, each with a compensating action for the undo.",
     blocks: [
       {
@@ -1383,7 +1342,6 @@ MECHANISM_NODES = [
        "You get small payloads, streaming in both directions, deadlines in the protocol itself, and a compiler that refuses incompatible changes. You give up curl-ability, easy browser access without a proxy, and caching by anything between the two ends."),
   {
     title: "GraphQL",
-    node_type: "api",
     summary: "One endpoint, a typed schema, and a client that asks for exactly the fields it wants.",
     blocks: [
       {
@@ -1421,7 +1379,6 @@ MECHANISM_NODES = [
        "It turns \"someone will break a consumer eventually\" into a failed CI step. Producers register, consumers fetch by id, and the compatibility mode you pick -- backward, forward or full -- is a statement about who you are allowed to deploy first."),
   {
     title: "Compatibility Rules",
-    node_type: "business_rule",
     summary: "The three rules that let a schema change without coordinating a deploy.",
     blocks: [
       {
@@ -1446,7 +1403,6 @@ MECHANISM_NODES = [
        "The alternative -- opening the gates after a timer -- sends the full load at a service that has just come back and knocks it down again. One probe, then a few, then normal: the recovery is as gradual as the failure was sudden."),
   {
     title: "Exponential Backoff with Jitter",
-    node_type: "concept",
     summary: "Wait longer each attempt, and randomise, so clients stop retrying in lockstep.",
     blocks: [
       {
@@ -1764,7 +1720,6 @@ INTERNAL_NODES = [
   # -- Redis
   {
     title: "Single-Threaded Event Loop",
-    node_type: "concept",
     summary: "One thread executes every command, so every command is atomic and every slow one is fatal.",
     blocks: [
       {
@@ -1852,7 +1807,6 @@ INTERNAL_NODES = [
 NUMBER_NODES = [
   {
     title: "acks, ISR and unclean leader election",
-    node_type: "concept",
     summary: "The three Kafka settings that decide whether an acknowledged write can be lost.",
     blocks: [
       {
@@ -1883,7 +1837,6 @@ NUMBER_NODES = [
   },
   {
     title: "Retention and compaction settings",
-    node_type: "concept",
     summary: "How long a Kafka topic keeps data, and when it keeps only the latest per key.",
     blocks: [
       {
@@ -1909,7 +1862,6 @@ NUMBER_NODES = [
   },
   {
     title: "Rebalance and poll timeouts",
-    node_type: "concept",
     summary: "The four values that decide whether a slow handler looks like a dead consumer.",
     blocks: [
       {
@@ -1932,7 +1884,6 @@ NUMBER_NODES = [
   },
   {
     title: "synchronous_commit and WAL retention",
-    node_type: "concept",
     summary: "PostgreSQL's durability dial, and the settings that keep a replica able to catch up.",
     blocks: [
       {
@@ -1960,7 +1911,6 @@ NUMBER_NODES = [
   },
   {
     title: "Autovacuum thresholds worth changing",
-    node_type: "concept",
     summary: "The defaults are sized for small tables; a hot large table needs its own numbers.",
     blocks: [
       {
@@ -1982,7 +1932,6 @@ NUMBER_NODES = [
   },
   {
     title: "Reading EXPLAIN ANALYZE",
-    node_type: "concept",
     summary: "Estimated rows against actual rows is the number that explains a bad plan.",
     blocks: [
       {
@@ -2007,7 +1956,6 @@ NUMBER_NODES = [
   },
   {
     title: "Latency numbers to compare against",
-    node_type: "concept",
     summary: "The orders of magnitude that decide whether a cache is worth having.",
     blocks: [
       {
@@ -2033,7 +1981,6 @@ NUMBER_NODES = [
   },
   {
     title: "maxmemory-policy",
-    node_type: "concept",
     summary: "What Redis does when it is full, which is a decision about what the data is.",
     blocks: [
       {
@@ -2056,7 +2003,6 @@ NUMBER_NODES = [
   },
   {
     title: "Compaction strategy by workload",
-    node_type: "concept",
     summary: "Cassandra's three strategies, and which amplification each one accepts.",
     blocks: [
       {
@@ -2074,7 +2020,6 @@ NUMBER_NODES = [
   },
   {
     title: "Shard sizing rules of thumb",
-    node_type: "concept",
     summary: "The figures that keep an Elasticsearch cluster out of trouble.",
     blocks: [
       {
@@ -2093,7 +2038,6 @@ NUMBER_NODES = [
   },
   {
     title: "Requests and limits for a web pod",
-    node_type: "concept",
     summary: "A starting point, and the two mistakes it avoids.",
     blocks: [
       {
@@ -2119,7 +2063,6 @@ NUMBER_NODES = [
   },
   {
     title: "Object lifecycle and cost per tier",
-    node_type: "concept",
     summary: "Roughly what each S3 storage class costs, and what it costs to get data back.",
     blocks: [
       {
@@ -2142,7 +2085,6 @@ NUMBER_NODES = [
   },
   {
     title: "Burn rate alert thresholds",
-    node_type: "concept",
     summary: "Two windows and two multiples, which is the whole alerting policy.",
     blocks: [
       {
@@ -2616,7 +2558,6 @@ else
 
     node = space.nodes.find_or_initialize_by(title: title)
     node.assign_attributes(
-      node_type: attributes.fetch(:node_type),
       layer: layers_by_index.fetch(depth),
       x: x,
       y: y,

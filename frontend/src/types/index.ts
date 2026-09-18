@@ -149,8 +149,6 @@ export interface SpatialSize {
 
 export interface DocumentationNode {
   id: string
-  /** Free-form, for example `service` or `table`. Not an enum — anything goes. */
-  nodeType: string
   title: string
   summary: string | null
   position: SpatialPosition
@@ -210,9 +208,9 @@ export interface AffectedRelationship {
 export interface DeletionImpact {
   node: Pick<DocumentationNode, 'id' | 'title'>
   /** Nodes inside it that would cease to exist, nearest first. */
-  descendants: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'>[]
+  descendants: Pick<DocumentationNode, 'id' | 'title'>[]
   /** Nodes inside it that also live elsewhere, and so survive either way. */
-  retained: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'>[]
+  retained: Pick<DocumentationNode, 'id' | 'title'>[]
   /** Every edge touching the node itself. These go whichever option is taken. */
   relationships: AffectedRelationship[]
   relationshipCount: number
@@ -229,8 +227,8 @@ export interface NodeRelationship {
   sourceNodeId: string
   targetNodeId: string
   metadata: Record<string, unknown>
-  sourceNode?: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'>
-  targetNode?: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'>
+  sourceNode?: Pick<DocumentationNode, 'id' | 'title'>
+  targetNode?: Pick<DocumentationNode, 'id' | 'title'>
 }
 
 export interface SpaceGraph {
@@ -295,7 +293,7 @@ export interface DocumentationSpace {
 }
 
 export interface SearchResult {
-  node: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'>
+  node: Pick<DocumentationNode, 'id' | 'title'>
   snippet: string
   rank: number
 }
@@ -315,7 +313,6 @@ export interface DocumentationSpacePageProps {
   space: DocumentationSpace
   initialGraph: SpaceGraph
   /** Server-owned vocabularies, sent so the client does not keep a copy that can drift. */
-  nodeTypes: string[]
   relationshipTypes: string[]
   blockTypes: ContentBlockKind[]
   collaborator: Collaborator

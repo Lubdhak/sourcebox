@@ -1,5 +1,5 @@
-import { ArrowLeft, ArrowRight, Check, ChevronDown, Link2, Pencil, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ArrowRight, ChevronDown, Link2, Pencil, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkdownBlock } from '@/features/documentation/blocks/MarkdownBlock'
@@ -33,31 +33,6 @@ import type { DocumentationNode, NodeRelationship } from '@/types'
  * arrows.
  */
 
-/**
- * The vocabulary offered for a node's type.
- *
- * A suggestion list, not an enum -- the column is free text on the server and a space
- * documenting hardware or a syllabus will want words nobody here thought of. The existing
- * value is always offered alongside these, so a type this list has never heard of is
- * never silently changed.
- */
-const NODE_TYPES = [
-  'service',
-  'product',
-  'feature',
-  'module',
-  'api',
-  'database',
-  'table',
-  'queue',
-  'external_system',
-  'workflow',
-  'business_rule',
-  'mechanism',
-  'metric',
-  'failure_mode',
-  'decision',
-]
 
 export function InspectorPanel({
   nodeId,
@@ -106,7 +81,7 @@ export function InspectorPanel({
     () =>
       levelNodes
         .filter((node) => node.id !== nodeId)
-        .map((node) => ({ id: node.id, title: node.title, nodeType: node.nodeType })),
+        .map((node) => ({ id: node.id, title: node.title })),
     [levelNodes, nodeId],
   )
 
@@ -116,7 +91,7 @@ export function InspectorPanel({
 
       return results
         .filter((result) => result.node.id !== nodeId)
-        .map((result) => ({ id: result.node.id, title: result.node.title, nodeType: result.node.nodeType }))
+        .map((result) => ({ id: result.node.id, title: result.node.title }))
     },
     [nodeId, spaceId],
   )
@@ -168,25 +143,7 @@ export function InspectorPanel({
           </Button>
         </div>
 
-        {/*
-          One line of metadata, as dropdowns.
-          Stacked labelled fields read as a form and cost the page a third of its width;
-          this is the same two facts in the space of a sentence, and both are editable
-          where they are shown rather than behind an edit mode.
-        */}
         <div className="flex flex-wrap items-center gap-1.5">
-          <Menu
-            label="Type"
-            value={detail.nodeType || 'untyped'}
-            disabled={!editable}
-            options={optionsWith(NODE_TYPES, detail.nodeType).map((type) => ({
-              id: type,
-              label: type.replace(/_/g, ' '),
-              selected: type === detail.nodeType,
-            }))}
-            onPick={(type) => void saveNodeFields({ nodeType: type })}
-          />
-
           {editable && !editing ? (
             <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setEditing(true)}>
               <Pencil className="size-3" />
@@ -278,11 +235,6 @@ export function InspectorPanel({
       </footer>
     </div>
   )
-}
-
-/** The stored value first, so a type or a depth this build does not list is never lost. */
-function optionsWith(known: string[], current: string): string[] {
-  return current && !known.includes(current) ? [current, ...known] : known
 }
 
 /**
@@ -465,112 +417,6 @@ function SummaryField({
   )
 }
 
-interface MenuOption {
-  id: string
-  label: string
-  selected: boolean
-}
-
-/**
- * A compact dropdown for one property.
- *
- * Hand-rolled rather than a `select`, because a native select cannot show which of
- * seventeen node types is current in a chip that reads like part of a sentence -- and
- * because the same control has to carry a depth, where the list is the space's own ladder
- * and changes while the app is running.
- */
-function Menu({
-  label,
-  value,
-  options,
-  disabled,
-  onPick,
-}: {
-  label: string
-  value: string
-  options: MenuOption[]
-  disabled: boolean
-  onPick: (id: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const container = useRef<HTMLDivElement>(null)
-
-  // Closing on an outside click is what makes this feel like a menu rather than a toggle
-  // somebody left switched on.
-  useEffect(() => {
-    if (!open) return
-
-    const onPointerDown = (event: MouseEvent) => {
-      if (!container.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-
-      // Stopped here, or Escape would also ascend the canvas a level.
-      event.stopPropagation()
-      setOpen(false)
-    }
-
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown, true)
-
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown, true)
-    }
-  }, [open])
-
-  if (disabled) {
-    return (
-      <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-        {value}
-      </span>
-    )
-  }
-
-  return (
-    <div className="relative" ref={container}>
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        aria-label={label}
-        aria-expanded={open}
-        className="flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-      >
-        {value}
-        <ChevronDown className="size-3" />
-      </button>
-
-      {open ? (
-        <div
-          role="listbox"
-          aria-label={label}
-          className="absolute left-0 z-30 mt-1 max-h-72 w-52 overflow-y-auto rounded-sm border border-border bg-popover p-1 shadow-lg"
-        >
-          {options.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              role="option"
-              aria-selected={option.selected}
-              onClick={() => {
-                setOpen(false)
-                if (!option.selected) onPick(option.id)
-              }}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent',
-                option.selected && 'font-medium',
-              )}
-            >
-              <Check className={cn('size-3 shrink-0', option.selected ? 'opacity-100' : 'opacity-0')} />
-              <span className="truncate">{option.label}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
 function Collapsible({
   title,

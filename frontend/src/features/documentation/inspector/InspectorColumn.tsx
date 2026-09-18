@@ -92,10 +92,19 @@ export function InspectorColumn({ open, children }: { open: boolean; children: R
 
   return (
     <aside
-      className={cn('relative shrink-0 border-l border-border bg-background', !open && 'hidden')}
-      style={{ width }}
+      className="relative shrink-0 overflow-hidden border-l border-border bg-background"
+      style={{
+        width: open ? width : 0,
+        transition: 'width 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+      }}
       aria-label="Node inspector"
+      aria-hidden={!open}
     >
+      {/*
+        The inner div is pinned to the full stored width so the content never reflows
+        or wraps during the transition. The outer aside clips it as it slides in/out.
+      */}
+      <div className="relative h-full" style={{ width }}>
       <div
         role="separator"
         aria-orientation="vertical"
@@ -123,6 +132,7 @@ export function InspectorColumn({ open, children }: { open: boolean; children: R
       />
 
       <div className="h-full overflow-hidden">{children}</div>
+      </div>
     </aside>
   )
 }

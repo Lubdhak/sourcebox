@@ -24,7 +24,6 @@ export interface NodeDetailApi {
 
   saveNodeFields: (fields: {
     title?: string
-    nodeType?: string
     summary?: string
   }) => Promise<void>
   /**

@@ -12,7 +12,7 @@ import {
   type OnConnect,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
   NeighborCard,
   neighborStroke,
@@ -136,6 +136,21 @@ const NEIGHBOR_COLUMN_WIDTH = 200
  */
 const DIVE_ANIMATION_MS = 420
 
+/**
+ * Imperative handle exposed to the parent via a ref.
+ *
+ * Kept intentionally minimal: only the things the parent genuinely cannot compute
+ * without reaching into the canvas (viewport-to-flow coordinate conversion).
+ */
+export interface SpatialCanvasHandle {
+  /**
+   * Returns the flow coordinate at the visual centre of the canvas container.
+   * Used so the toolbar "Add node" button places new nodes where the user is looking,
+   * not at the graph origin.
+   */
+  getViewportCenter(): { x: number; y: number; z: number }
+}
+
 export interface SpatialCanvasProps {
   nodes: DocumentationNode[]
   relationships: NodeRelationship[]
@@ -186,6 +201,14 @@ export interface SpatialCanvasProps {
   onRenameNode?: (nodeId: string, title: string) => void
   onDuplicateNode?: (nodeId: string) => void
   /**
+   * The id of a node that should immediately enter inline rename mode once React Flow
+   * has measured and shown its card. Set when a node is freshly created, so the user
+   * can type its name without opening the inspector.
+   */
+  autoRenameNodeId?: string | null
+  /** Called once the auto-rename has been triggered, so the caller can clear the id. */
+  onAutoRenameStarted?: () => void
+  /**
    * File a node somewhere else: inside the node it was dropped on, or out to the ancestor
    * whose breadcrumb it was dropped on. Null means the top of the space.
    */
@@ -197,7 +220,7 @@ export interface SpatialCanvasProps {
   onPointerPosition?: (position: { x: number; y: number }) => void
 }
 
-export function SpatialCanvas({
+export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(function SpatialCanvas({
   nodes,
   relationships,
   neighbors = NO_NODES,
@@ -217,12 +240,62 @@ export function SpatialCanvas({
   onDeleteNode,
   onRenameNode,
   onDuplicateNode,
+  autoRenameNodeId = null,
+  onAutoRenameStarted,
   onReparentNode,
   onOpenNeighbor,
   onGoUp,
   onPointerPosition,
-}: SpatialCanvasProps) {
+}: SpatialCanvasProps, ref) {
   const instance = useRef<ReactFlowInstance<CanvasNode, Edge> | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Always up-to-date nodes without being a dep of the selection effect.
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
+
+  /**
+   * Exposes the viewport centre in flow coordinates so the parent can place new nodes
+   * where the user is looking rather than at the graph origin.
+   */
+  useImperativeHandle(ref, () => ({
+    getViewportCenter() {
+      if (!instance.current || !containerRef.current) return { x: 0, y: 0, z: 0 }
+      const rect = containerRef.current.getBoundingClientRect()
+      const center = instance.current.screenToFlowPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      })
+      return { x: center.x, y: center.y, z: 0 }
+    },
+  }))
+
+  /*
+   * Pan to the selected node without touching the zoom.
+   *
+   * Both happen in the same 350 ms ease as the inspector sliding in, so the node drifts
+   * toward the centre of the narrower canvas at exactly the rate the panel claims the
+   * space on the right. The pan is triggered by `selectedNodeId` changing, not by any
+   * node position update, so drags and collaborator edits do not interrupt reading.
+   */
+  useEffect(() => {
+    if (!selectedNodeId) return
+
+    const node = nodesRef.current.find((n) => n.id === selectedNodeId)
+    if (!node) return
+
+    const cx = node.position.x + (node.size?.width ?? 240) / 2
+    const cy = node.position.y + (node.size?.height ?? 120) / 2
+
+    // One rAF so the inspector's CSS transition has already started and React Flow's
+    // ResizeObserver has had a chance to register the narrower container width.
+    const frame = requestAnimationFrame(() => {
+      const zoom = instance.current?.getZoom() ?? 1
+      instance.current?.setCenter(cx, cy, { zoom, duration: 350 })
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [selectedNodeId])
 
   /**
    * Click-to-connect, as an alternative to dragging between handles.
@@ -418,6 +491,31 @@ export function SpatialCanvas({
       })
     })
   }, [nodes, toFlowNodes])
+
+  /*
+   * Auto-rename a freshly created card as soon as React Flow measures and shows it.
+   *
+   * React Flow hides every node with `visibility: hidden` until it has measured it.
+   * Triggering a rename before that measurement means the focus call lands on a hidden
+   * input and is silently dropped. Watching `flowNodes` lets us detect the exact moment
+   * the node is measured (React Flow sets `measured` on the node object), dispatch the
+   * rename event, and immediately tell the parent to clear `autoRenameNodeId` so the
+   * effect does not fire again.
+   */
+  useEffect(() => {
+    if (!autoRenameNodeId) return
+
+    const flow = flowNodes.find((n) => n.id === autoRenameNodeId && n.type === 'documentation')
+    if (!flow?.measured) return
+
+    // Node is measured and visible. Tell the parent it's handled, then fire the event.
+    onAutoRenameStarted?.()
+
+    const element = containerRef.current?.querySelector<HTMLElement>(
+      `.react-flow__node-documentation[data-id="${autoRenameNodeId}"]`,
+    )
+    element?.dispatchEvent(new CustomEvent(RENAME_EVENT, { bubbles: false }))
+  }, [autoRenameNodeId, flowNodes, onAutoRenameStarted])
 
   // The camera move that makes a dive feel like movement rather than a page swap. Runs on
   // focus change only -- refitting whenever `nodes` changed would yank the viewport every
@@ -824,6 +922,7 @@ export function SpatialCanvas({
 
   return (
     <div
+      ref={containerRef}
       className="h-full w-full focus-visible:outline-none"
       data-testid="spatial-canvas"
       // Focusable so the keyboard reaches the canvas before anything in it has been
@@ -928,7 +1027,7 @@ export function SpatialCanvas({
       ) : null}
     </div>
   )
-}
+})
 
 function PeerCursor({ peer }: { peer: Peer }) {
   const color = collaboratorColor(peer.actor.colorSeed)

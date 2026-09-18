@@ -198,9 +198,8 @@ export function DeleteNodeDialog({
           warning
         >
           {inside.map((descendant) => (
-            <li key={descendant.id} className="flex items-baseline gap-1 truncate">
+            <li key={descendant.id} className="truncate">
               <span>{descendant.title}</span>
-              <span className="shrink-0 font-mono text-[10px]">{descendant.nodeType}</span>
             </li>
           ))}
         </Section>

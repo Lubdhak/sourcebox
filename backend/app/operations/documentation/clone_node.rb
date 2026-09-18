@@ -64,7 +64,6 @@ module Documentation
 
       copy = space.nodes.create!(
         title: root ? "#{original.title} copy" : original.title,
-        node_type: original.node_type,
         summary: original.summary,
         x: original.x + (root ? OFFSET : 0),
         y: original.y + (root ? OFFSET : 0),

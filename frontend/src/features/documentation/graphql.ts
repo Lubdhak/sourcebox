@@ -29,7 +29,6 @@ import type {
 const NODE_FIELDS = /* GraphQL */ `
   fragment NodeFields on Node {
     id
-    nodeType
     title
     summary
     position {
@@ -130,7 +129,6 @@ export const NODE_DETAIL_QUERY = /* GraphQL */ `
         targetNode {
           id
           title
-          nodeType
         }
       }
       incomingRelationships {
@@ -141,7 +139,6 @@ export const NODE_DETAIL_QUERY = /* GraphQL */ `
         sourceNode {
           id
           title
-          nodeType
         }
       }
     }
@@ -156,7 +153,6 @@ export const SEARCH_QUERY = /* GraphQL */ `
       node {
         id
         title
-        nodeType
       }
     }
   }
@@ -179,7 +175,6 @@ export const CREATE_NODE_MUTATION = /* GraphQL */ `
   mutation CreateNode(
     $spaceId: ID!
     $title: String!
-    $nodeType: String
     $x: Float
     $y: Float
     $parentNodeId: ID
@@ -188,7 +183,6 @@ export const CREATE_NODE_MUTATION = /* GraphQL */ `
       input: {
         spaceId: $spaceId
         title: $title
-        nodeType: $nodeType
         x: $x
         y: $y
         parentNodeId: $parentNodeId
@@ -203,9 +197,9 @@ export const CREATE_NODE_MUTATION = /* GraphQL */ `
 
 export const UPDATE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
-  mutation UpdateNode($nodeId: ID!, $title: String, $nodeType: String, $summary: String) {
+  mutation UpdateNode($nodeId: ID!, $title: String, $summary: String) {
     updateNode(
-      input: { nodeId: $nodeId, title: $title, nodeType: $nodeType, summary: $summary }
+      input: { nodeId: $nodeId, title: $title, summary: $summary }
     ) {
       node {
         ...NodeFields
@@ -364,7 +358,6 @@ export async function createSpace(variables: { name: string; description?: strin
 export async function createNode(variables: {
   spaceId: string
   title: string
-  nodeType?: string
   x?: number
   y?: number
   parentNodeId?: string | null
@@ -381,7 +374,6 @@ export async function createNode(variables: {
 export async function updateNode(variables: {
   nodeId: string
   title?: string
-  nodeType?: string
   summary?: string
 }): Promise<DocumentationNode> {
   const data = await graphql<{ updateNode: { node: DocumentationNode | null } }, typeof variables>(
@@ -476,12 +468,10 @@ export const DELETION_IMPACT_QUERY = /* GraphQL */ `
       descendants {
         id
         title
-        nodeType
       }
       retained {
         id
         title
-        nodeType
       }
       relationships {
         id

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_18_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_18_000002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -125,7 +125,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_000001) do
     t.bigint "documentation_space_id", null: false
     t.float "height", default: 120.0, null: false
     t.jsonb "metadata", default: {}, null: false
-    t.string "node_type", default: "concept", null: false
     t.virtual "search_vector", type: :tsvector, as: "to_tsvector('english'::regconfig, (((COALESCE(title, ''::character varying))::text || ' '::text) || COALESCE(summary, ''::text)))", stored: true
     t.text "summary"
     t.string "title", null: false

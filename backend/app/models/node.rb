@@ -3,9 +3,8 @@
 # The single documentation entity.
 #
 # A product, a service, a database table, a team, a business rule and an external system
-# are all nodes. They differ in `node_type` and in the content blocks they carry, not in
-# their storage, which is what makes the same node reachable from many places without its
-# content being copied.
+# are all nodes. They share the same storage, which is what makes the same node reachable
+# from many places without its content being copied.
 #
 # Position (`x`, `y`, `z`) lives here rather than in the renderer. The canvas is one view
 # over this data; a tree, a list, a dependency graph or a WebGL scene are others, and none
@@ -28,17 +27,6 @@ class Node < ApplicationRecord
            dependent: :destroy,
            inverse_of: :target_node
 
-  # A suggested vocabulary, not a closed set.
-  #
-  # The column is a string and there is no inclusion validation, because the whole point
-  # of "everything is a node" is that a team can document anything they care about.
-  # These values exist so the seeds and the UI's type picker have something consistent
-  # to start from; users are free to use any label they like.
-  SUGGESTED_TYPES = %w[
-    product service module api database table queue feature
-    workflow business_rule team person external_system
-  ].freeze
-
   MAX_SERIALIZED_METADATA_BYTES = 16.kilobytes
 
   # Positions are user-dragged, so they are bounded to keep a stray value from placing a
@@ -46,7 +34,6 @@ class Node < ApplicationRecord
   COORDINATE_LIMIT = 1_000_000.0
 
   validates :title, presence: true, length: { maximum: 200 }
-  validates :node_type, presence: true, length: { maximum: 60 }
   validates :summary, length: { maximum: 4_000 }, allow_blank: true
   validates :x, :y, :z,
             presence: true,
