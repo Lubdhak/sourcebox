@@ -11,6 +11,19 @@
 - **Backend (Render)**  
   `<add Render web service URL>`
 
+
+
+Backend : Render : https://dashboard.render.com/web/srv-damrjcmk1f9s738mggag/events
+
+Frontend : Vercel : https://vercel.com/lubdhaks-projects-91deb0ea/sourcebox/logs
+
+DB : Neon : https://console.neon.tech/app/projects/little-voice-20000393/branches/br-crimson-tree-b42qhmzj
+
+App : https://sourcebox.onrender.com/users/sign_in
+
+
+
+
 The deployment topology is:
 
 1. Neon provides the `sourcebox` PostgreSQL database and the derived
@@ -101,3 +114,4 @@ Upcoming Features -
 - Node added & updated by + what was updated
 
 - Node linking with arrow direction + mandate naming the relation
+

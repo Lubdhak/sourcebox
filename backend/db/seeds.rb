@@ -1,26 +1,36 @@
 # frozen_string_literal: true
 
-# Development seed data.
+# Seed data for demo/onboarding accounts.
 #
 # Idempotent by design: `db:prepare` runs this whenever it creates the database, and
 # `./dev seed` can be run repeatedly. Everything uses find_or_create_by/update so
 # re-running converges instead of duplicating or raising.
 #
-# Refuses to run in production. Seeds create users with known passwords, which is exactly
-# the kind of thing that must never appear in a real environment.
+# Allowed to run in production, but ONLY with an explicit, non-default password supplied
+# via DEMO_SEED_PASSWORD. The literal string "saas" below is public (committed to this
+# file) and must never be the actual password for an account that exists in a real
+# deployment — that would let anyone who has read this file sign in to production.
 if Rails.env.production?
-  warn "Refusing to seed in production."
-  exit 1
+  warn "Seeding production. Accounts below will exist with the password from DEMO_SEED_PASSWORD."
 end
 
 # Creating users here does fire User's after_create_commit hook, which emits
 # `user.created` and enqueues NotificationJob and AnalyticsEventJob. That is left in
 # place on purpose: it gives a fresh checkout a few jobs on the queue, so `./dev up` shows
 # the worker doing real work instead of idling.
-# Short and memorable on purpose, because its only job is to be typed by hand during a
-# demo. It is far below Devise's configured minimum (config.password_length), which is why
-# the save below skips validation — see the comment there.
-DEMO_PASSWORD = "saas"
+#
+# "saas" is short and memorable on purpose for local/dev use, because its only job there is
+# to be typed by hand during a demo. It is far below Devise's configured minimum
+# (config.password_length), which is why the save below skips validation — see the comment
+# there. In production this default is never used: DEMO_SEED_PASSWORD is required instead.
+DEMO_PASSWORD = if Rails.env.production?
+  ENV.fetch("DEMO_SEED_PASSWORD") do
+    raise "Refusing to seed production without DEMO_SEED_PASSWORD set. Set a strong, " \
+          "non-public password for the seeded accounts before running db:seed here."
+  end
+else
+  ENV.fetch("DEMO_SEED_PASSWORD", "saas")
+end
 
 SEED_USERS = [
   {
@@ -102,7 +112,7 @@ puts <<~SUMMARY
     Users:      #{User.count}
     Doc spaces: #{DocumentationSpace.count} (#{Node.count} nodes, #{NodeRelationship.count} relationships)
 
-  Password sign-in for any seeded account:  #{DEMO_PASSWORD}
+  Password sign-in for any seeded account:  #{Rails.env.production? ? "(set via DEMO_SEED_PASSWORD, not logged)" : DEMO_PASSWORD}
   Google sign-in still requires real GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.
 
 SUMMARY

@@ -23,9 +23,9 @@ module Users
 
         # Whether to show the email/password form.
         #
-        # Keep this available locally without extra configuration, while allowing production
-        # deployments to opt in explicitly. Google OAuth remains the default production path.
-        allowPasswordSignIn: Rails.env.development? ||
+        # Enable this in production and locally. The environment variable remains an
+        # explicit override for other environments, while Google OAuth stays available.
+        allowPasswordSignIn: Rails.env.production? || Rails.env.development? ||
           ActiveModel::Type::Boolean.new.cast(ENV.fetch("EMAIL_PASS_LOGIN", false)),
 
         # Set by Devise's failure app on a bad sign-in, and by the OAuth callback controller

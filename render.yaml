@@ -4,7 +4,13 @@ services:
     runtime: docker
     dockerfilePath: backend/Dockerfile
     dockerContext: backend
-    dockerCommand: bin/rails server -b 0.0.0.0 -p 3000
+    # NOTE: this service is not Blueprint-synced (it was created as a standalone Web
+    # Service, not via "New -> Blueprint"), so Render does not read this file for it.
+    # Pre-Deploy Command and Shell are also Pro-plan-only, unavailable on this service's
+    # actual (Free) instance type. db:prepare/db:seed are folded into the start command
+    # below as a workaround; paste it into the dashboard's Start/Docker Command field by
+    # hand, and keep envVars below in sync with what's actually set there too.
+    dockerCommand: bin/rails db:prepare && bin/rails db:seed && bundle exec puma -C config/puma.rb
     healthCheckPath: /ready
     plan: starter
     envVars:
@@ -40,11 +46,12 @@ services:
         sync: false
       - key: EMAIL_PASS_LOGIN
         value: "true"
+      - key: DEMO_SEED_PASSWORD
+        sync: false
       - key: JOB_CONCURRENCY
         value: "2"
       - key: JOB_CONCURRENCY_CRITICAL
         value: "1"
-    preDeployCommand: bin/rails db:prepare
 
   - type: worker
     name: sourcebox-worker
