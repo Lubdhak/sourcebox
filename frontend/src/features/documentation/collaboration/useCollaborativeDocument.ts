@@ -26,18 +26,16 @@ import type { Collaborator } from '@/features/documentation/collaboration/useSpa
  */
 
 /**
- * The node's page, inside the node's document.
+ * The awareness key used to indicate which page a collaborator is editing.
  *
  * A fixed key rather than one per content block, because a node's documentation is one
- * body now and the blocks behind it are storage. Keying by block id also meant the shared
- * text moved whenever the row it came from was replaced, which is exactly what saving a
- * page does.
+ * body now and the blocks behind it are storage. Sent via the `awareness` action so
+ * other clients can display "Alice is in here too".
+ *
+ * This is NOT the key used to store the Plate document in the Y.Doc — that is
+ * `PLATE_CONTENT_KEY` in usePlateYjsEditor, owned by @platejs/yjs.
  */
 export const PAGE_KEY = 'page'
-
-export function pageText(doc: Y.Doc): Y.Text {
-  return doc.getText(PAGE_KEY)
-}
 
 export interface TextPeer {
   sessionId: string

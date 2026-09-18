@@ -15,6 +15,7 @@ import {
   useEditorRef,
   useElement,
   usePluginOption,
+  useReadOnly,
 } from 'platejs/react';
 import { useSelected } from 'platejs/react';
 
@@ -27,8 +28,16 @@ const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td];
 export const BlockDraggable: RenderNodeWrapper = (props) => {
   const { editor, element, path } = props;
 
+  /*
+    useReadOnly subscribes to Plate's store and re-renders this wrapper
+    whenever readOnly changes. Without this, the useMemo below would cache
+    `enabled = false` from the initial readOnly state and never re-evaluate
+    when the editor becomes editable after the collaborative session syncs.
+  */
+  const readOnly = useReadOnly();
+
   const enabled = React.useMemo(() => {
-    if (editor.dom.readOnly) return false;
+    if (readOnly) return false;
 
     if (path.length === 1 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
       return true;
@@ -59,7 +68,7 @@ export const BlockDraggable: RenderNodeWrapper = (props) => {
     }
 
     return false;
-  }, [editor, element, path]);
+  }, [readOnly, editor, element, path]);
 
   if (!enabled) return;
 

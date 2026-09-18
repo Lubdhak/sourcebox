@@ -1,7 +1,7 @@
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import { MarkdownPlugin } from '@platejs/markdown'
 import { KEYS } from 'platejs'
-import { Plate, PlateContent, useEditorRef, usePlateEditor } from 'platejs/react'
+import { Plate, PlateContent, useEditorRef } from 'platejs/react'
 import {
   Code,
   Heading1,
@@ -12,15 +12,18 @@ import {
   SquareCode,
   Table as TableIcon,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { insertTable } from '@platejs/table'
 import { toggleCodeBlock } from '@platejs/code-block'
-import { CollaborativeTextArea } from '@/features/documentation/collaboration/CollaborativeTextArea'
+import { usePlateYjsEditor } from '@/features/documentation/collaboration/usePlateYjsEditor'
 import { DEFAULT_CODE_LANGUAGE } from '@/features/documentation/blocks/highlight'
 import { MentionSourceProvider } from '@/features/documentation/editor/MentionSource'
 import type { MentionCandidate } from '@/features/documentation/editor/MentionPicker'
-import { DOCUMENTATION_PLUGINS } from '@/features/documentation/editor/plugins'
-import { continueLine, indentLines } from '@/features/documentation/editor/sourceCommands'
+import {
+  continueLine,
+  indentLines,
+  type TextEdit,
+} from '@/features/documentation/editor/sourceCommands'
 import type { PageBody } from '@/features/documentation/inspector/usePageBody'
 import { FixedToolbar } from '@/components/ui/fixed-toolbar'
 import { FloatingToolbar } from '@/components/ui/floating-toolbar'
@@ -39,27 +42,48 @@ import { cn } from '@/lib/utils'
 /**
  * The page editor: formatted text, a toolbar, and `@` to link another node.
  *
- * There is no block type here and no "add block" -- a node's documentation is a document,
- * and the storage being a list of typed payloads is the storage's business. What that
- * buys is the thing every documentation tool gets right and a block form gets wrong: you
- * put the caret where the words go and write, instead of first answering what kind of
- * thing you are about to write.
+ * ### Collaborative architecture
  *
- * The editor is Plate, which is to say a real document model. Everything that used to be
- * a bug here -- Enter in a code block, a table inside a table cell, a caret that vanished
- * when a collaborator typed, Tab leaving the editor -- was the same bug: `contenteditable`
- * let the browser decide what a keystroke meant, and we read the wreckage afterwards.
- * A schema decides now, and the toolbar is Plate's own.
+ * The canonical collaborative document is:
  *
- * Markdown remains what is stored, and is one click away for whoever wants it. That second
- * mode is not a fallback nobody uses -- it is how you paste a document in, fix something
- * by hand, or see exactly what will be saved -- and it is the same shared text underneath,
- * so switching mid-sentence loses nothing.
+ *   Y.Doc  →  @platejs/yjs  →  Plate / Slate model  →  React UI
+ *
+ * Markdown is a derived representation:
+ *
+ *   Plate document  →  MarkdownPlugin.serialize()  →  Markdown snapshot  →  DB
+ *
+ * The editor is created by `usePlateYjsEditor`, which:
+ *   - Attaches the Y.Doc to the Plate editor via YjsPlugin.
+ *   - Seeds the Y.Doc from stored Markdown when the collaborative document is empty.
+ *
+ * Remote Yjs updates arrive as precise Slate operations (not a full `setValue`), so
+ * the cursor survives a collaborator's keystrokes. Local Plate operations become Yjs
+ * operations through the binding — no Markdown serialisation in the hot path.
+ *
+ * ### Markdown mode
+ *
+ * The "Markdown" toggle shows the current Plate state as raw text. In this mode:
+ *   - The textarea is initialised from `editor.serialize()` when the mode is entered.
+ *   - Changes to the textarea are applied to the Plate editor (via `setValue + Yjs`),
+ *     which propagates them to collaborators through the Y.Doc.
+ *   - Keyboard shortcuts (Tab, Enter continuation) apply to the local string.
+ *
+ * Markdown mode is NOT a second collaborative surface. Two people editing Markdown
+ * simultaneously is not supported: the rich editor is the primary collaborative surface.
  */
 
 export type { MentionCandidate }
 
 type Mode = 'rich' | 'markdown'
+
+/**
+ * How often the Plate `onChange` handler serialises the document to Markdown.
+ *
+ * This produces the snapshot that usePageBody debounces into a DB write. Keep
+ * it low enough that a crash loses little work; the DB write is debounced
+ * separately in usePageBody.
+ */
+const SNAPSHOT_DEBOUNCE_MS = 600
 
 export function PageEditor({
   page,
@@ -68,70 +92,154 @@ export function PageEditor({
   onDone,
 }: {
   page: PageBody
-  /** Shown before anything is typed after `@`: the nodes on screen, which is usually enough. */
   candidates: MentionCandidate[]
   onSearchMentions: (query: string) => Promise<MentionCandidate[]>
   onDone: () => void
 }) {
   const [mode, setMode] = useState<Mode>('rich')
+  const [markdownText, setMarkdownText] = useState('')
 
   /*
-    The seam between a document and the text it is stored as.
+    The Plate editor, bound to the collaborative Y.Doc via @platejs/yjs.
 
-    The shared document is Markdown in a `Y.Text`, which is what lets the Markdown surface
-    be the same document rather than a copy of it, and what keeps the stored form the only
-    form. So the editor parses that text once and writes it back on every change, and
-    `settled` is the last text either side agreed on -- the test for "this change came from
-    somebody else" and the thing that stops an echo from re-parsing the document under the
-    caret.
+    usePlateYjsEditor handles:
+      - Adding YjsPlugin to the plugin set.
+      - Seeding the Y.Doc from page.stored when it is empty.
+      - The election mechanism that prevents double-seeding on concurrent joins.
+
+    The editor instance is stable for the lifetime of this component; recreating
+    it would disconnect the Yjs binding and lose in-flight operations.
   */
-  const settled = useRef(page.value)
-
-  const editor = usePlateEditor({
-    plugins: DOCUMENTATION_PLUGINS,
-    value: (instance) => instance.getApi(MarkdownPlugin).markdown.deserialize(page.value),
-    // A parsed document has not been through the editor's own rules yet, and one of those
-    // rules is the line at the end. Without this, a page whose last block is a table has
-    // nothing after it to put a caret in until something else happens to normalize.
-    shouldNormalizeEditor: true,
+  const editor = usePlateYjsEditor({
+    document: page.document,
+    stored: page.stored,
   })
 
-  const write = useCallback(() => {
-    const markdown = editor
-      .getApi(MarkdownPlugin)
-      .markdown.serialize()
-      // An empty paragraph is written as a zero-width space, which is how a document
-      // model keeps a line nobody has typed in yet. It is not something to store: it
-      // would travel into the database, into the reader's page, and into the next
-      // serialization, and `trim` does not consider it whitespace.
-      .replace(/\u200B/g, '')
-      // A table's divider row, written with three dashes a column the way every document
-      // already in the database writes it. remark writes the narrowest row that parses --
-      // `| - | - |` -- and the alternative is padding each column to its widest cell,
-      // which changes again every time a cell does. Either one would rewrite every table
-      // in the space the first time somebody opened its page.
-      .replace(/^\|(?:\s*:?-+:?\s*\|)+$/gm, (row) => row.replace(/-+/g, '---'))
-      .trim()
+  /*
+    Snapshot timer: fires when the Plate editor changes (via the <Plate onChange>
+    prop). Serialises the document to Markdown and reports it to usePageBody for
+    debounced DB persistence. Only runs when the Plate editor is the authoritative
+    surface (both in rich mode and during Markdown mode apply).
+  */
+  const snapshotTimer = useRef<number | null>(null)
 
-    if (markdown === settled.current) return
-
-    settled.current = markdown
-    page.write(markdown)
+  const scheduleSnapshot = useCallback(() => {
+    if (snapshotTimer.current !== null) window.clearTimeout(snapshotTimer.current)
+    snapshotTimer.current = window.setTimeout(() => {
+      snapshotTimer.current = null
+      const markdown = tidy(editor.getApi(MarkdownPlugin).markdown.serialize())
+      page.onEditorChange(markdown)
+    }, SNAPSHOT_DEBOUNCE_MS)
   }, [editor, page])
 
-  useEffect(() => {
-    if (page.value === settled.current) return
+  /*
+    Markdown apply timer: when the user types in the textarea, we debounce
+    applying the Markdown text to the Plate editor. This propagates via the Yjs
+    binding so collaborators in rich mode see the changes in near-real-time.
 
-    settled.current = page.value
-    editor.tf.setValue(editor.getApi(MarkdownPlugin).markdown.deserialize(page.value))
-    // The same rules as at creation: a document that arrives from somebody else also has
-    // to end somewhere a caret can go.
-    editor.tf.normalize({ force: true })
-  }, [editor, page.value])
+    Keeping this separate from the snapshot timer lets both fire independently:
+    apply happens on textarea change, snapshot happens on Plate editor change
+    (which is triggered by the apply).
+  */
+  const applyTimer = useRef<number | null>(null)
 
-  const selection = useCallback(
-    (element: HTMLTextAreaElement) => ({ start: element.selectionStart, end: element.selectionEnd }),
-    [],
+  const applyMarkdownToEditor = useCallback(
+    (text: string) => {
+      if (applyTimer.current !== null) window.clearTimeout(applyTimer.current)
+      applyTimer.current = window.setTimeout(() => {
+        applyTimer.current = null
+        const value = editor.getApi(MarkdownPlugin).markdown.deserialize(text)
+        editor.tf.setValue(value)
+        editor.tf.normalize({ force: true })
+        // onEditorChange is called via scheduleSnapshot (triggered by setValue → Plate onChange).
+        // Calling it here too keeps page.value and flush() current without waiting for
+        // the snapshot timer.
+        page.onEditorChange(text)
+      }, SNAPSHOT_DEBOUNCE_MS)
+    },
+    [editor, page],
+  )
+
+  /*
+    Enter Markdown mode: snapshot the current Plate state and show it in the
+    textarea. The Plate editor is still active in the background (the <Plate>
+    wrapper stays mounted), so Yjs keeps receiving remote updates — they just
+    aren't reflected in the textarea until the user exits Markdown mode.
+  */
+  const enterMarkdownMode = useCallback(() => {
+    const snapshot = tidy(editor.getApi(MarkdownPlugin).markdown.serialize())
+    setMarkdownText(snapshot)
+    setMode('markdown')
+  }, [editor])
+
+  /*
+    Exit Markdown mode: switch the UI back to rich. The Plate editor already has
+    the latest content (kept current by the debounced apply on every textarea
+    change), so no extra setValue call is needed here.
+  */
+  const exitMarkdownMode = useCallback(() => {
+    // Cancel any pending apply — the user is done editing Markdown.
+    if (applyTimer.current !== null) {
+      window.clearTimeout(applyTimer.current)
+      applyTimer.current = null
+      // Apply synchronously with the current text so nothing is lost.
+      const value = editor.getApi(MarkdownPlugin).markdown.deserialize(markdownText)
+      editor.tf.setValue(value)
+      editor.tf.normalize({ force: true })
+      page.onEditorChange(markdownText)
+    }
+    setMode('rich')
+  }, [editor, markdownText, page])
+
+  const handleModeToggle = useCallback(() => {
+    if (mode === 'rich') enterMarkdownMode()
+    else exitMarkdownMode()
+  }, [enterMarkdownMode, exitMarkdownMode, mode])
+
+  const handleDone = useCallback(() => {
+    // If there is a pending Markdown apply, flush it synchronously first.
+    if (mode === 'markdown' && applyTimer.current !== null) {
+      window.clearTimeout(applyTimer.current)
+      applyTimer.current = null
+      const value = editor.getApi(MarkdownPlugin).markdown.deserialize(markdownText)
+      editor.tf.setValue(value)
+      editor.tf.normalize({ force: true })
+      page.onEditorChange(markdownText)
+    }
+    void page.flush().then(onDone)
+  }, [editor, markdownText, mode, onDone, page])
+
+  /*
+    Caret management for the Markdown textarea.
+
+    A controlled textarea puts the cursor at the end on every re-render. When we
+    apply a Tab indent or an Enter continuation, we compute where the cursor
+    should be afterwards and restore it in a layout effect (before the browser
+    paints, so there is no flicker).
+  */
+  const markdownRef = useRef<HTMLTextAreaElement | null>(null)
+  const pendingCaret = useRef<{ start: number; end: number } | null>(null)
+
+  useLayoutEffect(() => {
+    if (pendingCaret.current === null || !markdownRef.current) return
+    markdownRef.current.setSelectionRange(pendingCaret.current.start, pendingCaret.current.end)
+    pendingCaret.current = null
+  }, [markdownText])
+
+  /*
+    Apply a TextEdit to markdownText and schedule a caret restore.
+
+    TextEdit = { start, end, insert, select } — replace slice [start, end)
+    with insert, then put the caret at select.
+  */
+  const applyMarkdownEdit = useCallback(
+    (edit: TextEdit) => {
+      const next = markdownText.slice(0, edit.start) + edit.insert + markdownText.slice(edit.end)
+      pendingCaret.current = edit.select
+      setMarkdownText(next)
+      applyMarkdownToEditor(next)
+    },
+    [applyMarkdownToEditor, markdownText],
   )
 
   const onSourceKeyDown = useCallback(
@@ -139,130 +247,120 @@ export function PageEditor({
       const element = event.currentTarget
 
       if (event.key === 'Escape') {
-        // Stopped here rather than reaching the canvas, which would ascend a level out
-        // from under the page being written.
         event.stopPropagation()
         onDone()
-
         return
       }
 
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault()
+        exitMarkdownMode()
         void page.flush().then(onDone)
-
         return
       }
 
       if (event.key === 'Tab') {
         event.preventDefault()
-        page.applyEdit(indentLines(element.value, selection(element), event.shiftKey))
-
+        applyMarkdownEdit(
+          indentLines(
+            markdownText,
+            { start: element.selectionStart, end: element.selectionEnd },
+            event.shiftKey,
+          ),
+        )
         return
       }
 
       if (event.key === 'Enter' && !event.shiftKey) {
-        const edit = continueLine(element.value, element.selectionStart)
-
+        const edit = continueLine(markdownText, element.selectionStart)
         if (edit && element.selectionStart === element.selectionEnd) {
           event.preventDefault()
-          page.applyEdit(edit)
+          applyMarkdownEdit(edit)
         }
       }
     },
-    [onDone, page, selection],
+    [applyMarkdownEdit, exitMarkdownMode, markdownText, onDone, page],
   )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/*
-        Radix's tooltip context, which Plate's controls expect. This project's own tooltip
-        is built on Base UI, so the editor keeps its own provider rather than the two
-        being made to agree.
+        Radix's tooltip context, which Plate's controls expect.
       */}
       <TooltipPrimitive.Provider delayDuration={400}>
-        <Plate editor={editor} onChange={write}>
-        <MentionSourceProvider candidates={candidates} onSearchMentions={onSearchMentions}>
-          <FixedToolbar className="justify-start gap-0.5 border-b border-border px-2 py-1.5">
-            <PageToolbar disabled={!page.synced || mode === 'markdown'} />
+        <Plate editor={editor} onChange={scheduleSnapshot}>
+          <MentionSourceProvider candidates={candidates} onSearchMentions={onSearchMentions}>
+            <FixedToolbar className="justify-start gap-0.5 border-b border-border px-2 py-1.5">
+              <PageToolbar disabled={!page.synced || mode === 'markdown'} />
 
-            {/*
-              The escape hatch, and it says what it is rather than calling itself a
-              preview: the formatted surface is not a preview of anything, it is the
-              document. This shows the Markdown that will be saved, and lets somebody edit
-              it directly.
-            */}
-            <button
-              type="button"
-              onClick={() => setMode((current) => (current === 'rich' ? 'markdown' : 'rich'))}
-              aria-pressed={mode === 'markdown'}
-              className={cn(
-                'ml-auto flex items-center gap-1 rounded-sm px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground',
-                mode === 'markdown' && 'bg-accent text-foreground',
-              )}
-            >
-              <SquareCode className="size-3.5" />
-              Markdown
-            </button>
-          </FixedToolbar>
+              {/*
+                The escape hatch: shows the Markdown that will be saved, and lets
+                somebody edit it directly.
+              */}
+              <button
+                type="button"
+                onClick={handleModeToggle}
+                aria-pressed={mode === 'markdown'}
+                className={cn(
+                  'ml-auto flex items-center gap-1 rounded-sm px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground',
+                  mode === 'markdown' && 'bg-accent text-foreground',
+                )}
+              >
+                <SquareCode className="size-3.5" />
+                Markdown
+              </button>
+            </FixedToolbar>
 
-          <div className="relative min-h-0 flex-1 overflow-y-auto">
-            {mode === 'rich' ? (
-              <>
-                {/*
-                  The same controls again, where the hands already are.
+            <div className="relative min-h-0 flex-1 overflow-y-auto">
+              {mode === 'rich' ? (
+                <>
+                  {/*
+                    The same controls again, where the hands already are.
+                  */}
+                  <FloatingToolbar>
+                    <SelectionToolbar />
+                  </FloatingToolbar>
 
-                  A toolbar at the top of the panel is a long way from a word in the middle
-                  of a page, and the formatting somebody reaches for is nearly always for
-                  the words they have just selected. Plate positions this against the
-                  selection and hides it when there is none.
-                */}
-                <FloatingToolbar>
-                  <SelectionToolbar />
-                </FloatingToolbar>
+                  <PlateContent
+                    className="documentation-markdown min-h-full py-4 pl-12 pr-6 text-sm leading-relaxed focus-visible:outline-none"
+                    readOnly={!page.synced}
+                    aria-label="Page content"
+                    placeholder={PLACEHOLDER}
+                    onFocus={() => page.announceEditing(true)}
+                    onBlur={() => page.announceEditing(false)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.stopPropagation()
+                        onDone()
+                        return
+                      }
 
-                <PlateContent
-                  // Styled by exactly the rules a reader sees, because the stored form is
-                  // the same Markdown. Editing something that looks different from the
-                  // published result is the failure mode this surface exists to avoid.
-                  //
-                  // The left padding is room for the drag handle, which sits in the margin
-                  // so that it never moves the text it belongs to.
-                  className="documentation-markdown min-h-full py-4 pl-12 pr-6 text-sm leading-relaxed focus-visible:outline-none"
-                  readOnly={!page.synced}
-                  aria-label="Page content"
-                  placeholder={PLACEHOLDER}
-                  onFocus={() => page.announceEditing(true)}
-                  onBlur={() => page.announceEditing(false)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Escape') {
-                      event.stopPropagation()
-                      onDone()
-
-                      return
-                    }
-
-                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                      event.preventDefault()
-                      void page.flush().then(onDone)
-                    }
+                      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                        event.preventDefault()
+                        void page.flush().then(onDone)
+                      }
+                    }}
+                  />
+                </>
+              ) : (
+                <textarea
+                  ref={markdownRef}
+                  value={markdownText}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    setMarkdownText(next)
+                    applyMarkdownToEditor(next)
                   }}
+                  disabled={!page.synced}
+                  aria-label="Markdown source"
+                  className="h-full w-full resize-none border-0 bg-transparent px-6 py-4 font-mono text-[13px] leading-relaxed focus-visible:outline-none disabled:opacity-60"
+                  placeholder={page.synced ? PLACEHOLDER : 'Loading…'}
+                  onFocus={() => page.announceEditing(true)}
+                  onKeyDown={onSourceKeyDown}
                 />
-              </>
-            ) : (
-              <CollaborativeTextArea
-                text={page.text}
-                synced={page.synced}
-                ariaLabel="Markdown source"
-                className="h-full w-full resize-none border-0 bg-transparent px-6 py-4 font-mono text-[13px] leading-relaxed focus-visible:outline-none disabled:opacity-60"
-                placeholder={PLACEHOLDER}
-                onFocus={() => page.announceEditing(true)}
-                onBlur={() => page.announceEditing(false)}
-                onKeyDown={onSourceKeyDown}
-              />
-            )}
-          </div>
-        </MentionSourceProvider>
+              )}
+            </div>
+          </MentionSourceProvider>
         </Plate>
       </TooltipPrimitive.Provider>
 
@@ -287,7 +385,7 @@ export function PageEditor({
 
         {page.conversionNotice ? <span className="text-amber-600">{page.conversionNotice}</span> : null}
 
-        <Button size="sm" variant="outline" className="ml-auto" onClick={() => void page.flush().then(onDone)}>
+        <Button size="sm" variant="outline" className="ml-auto" onClick={handleDone}>
           Done
         </Button>
       </footer>
@@ -298,11 +396,27 @@ export function PageEditor({
 const PLACEHOLDER = 'Write the documentation for this node…'
 
 /**
- * What the floating toolbar offers: the things you do to words you have just selected.
+ * Normalise the Markdown that Plate's serialiser produces.
  *
- * Deliberately shorter than the bar at the top. A selection is a phrase, and the useful
- * answers to a phrase are emphasis, a link, and "make this a heading" -- not "insert a
- * table here", which is about a place rather than about the words.
+ * These two adjustments keep the stored form stable so that merely opening
+ * and reading a page does not trigger a write:
+ *
+ *   \u200B  — a zero-width space used by Plate for empty paragraphs in the
+ *              document model; it must not reach the database.
+ *
+ *   | - |   — remark writes the shortest valid table divider; every document
+ *              already in the database uses `| --- |`, so we normalise to that
+ *              form to avoid rewriting every table on the first open.
+ */
+function tidy(markdown: string): string {
+  return markdown
+    .replace(/\u200B/g, '')
+    .replace(/^\|(?:\s*:?-+:?\s*\|)+$/gm, (row) => row.replace(/-+/g, '---'))
+    .trim()
+}
+
+/**
+ * What the floating toolbar offers: the things you do to words you have just selected.
  */
 function SelectionToolbar() {
   const editor = useEditorRef()
@@ -346,15 +460,6 @@ function SelectionToolbar() {
 
 /**
  * The toolbar, assembled from Plate's own controls.
- *
- * Only the ones this document set has nodes for. Plate ships a much larger bar -- AI,
- * comments, media, colours, alignment -- and every one of those is a button that would
- * either do nothing here or write something Markdown cannot hold, which is the same thing
- * as losing it on the next save.
- *
- * The block buttons are Plate's `ToolbarButton` driven by its transforms rather than its
- * "turn into" menu, because that menu is generated from a plugin list we deliberately do
- * not have.
  */
 function PageToolbar({ disabled }: { disabled: boolean }) {
   const editor = useEditorRef()
@@ -403,8 +508,6 @@ function PageToolbar({ disabled }: { disabled: boolean }) {
           tooltip="Code block"
           onClick={() => {
             toggleCodeBlock(editor)
-            // A snippet arrives as JSON rather than as a question, and the picker in the
-            // block's corner is how it becomes something else.
             editor.tf.setNodes(
               { lang: DEFAULT_CODE_LANGUAGE },
               { match: (node) => node.type === KEYS.codeBlock },
@@ -431,7 +534,6 @@ function PageToolbar({ disabled }: { disabled: boolean }) {
 
       <ToolbarGroup>
         <LinkToolbarButton />
-        {/* Plate's own table menu: rows and columns in and out, which is what a table needs. */}
         <TableToolbarButton />
       </ToolbarGroup>
     </div>

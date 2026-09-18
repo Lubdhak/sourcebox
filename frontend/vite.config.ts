@@ -34,6 +34,19 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      /*
+        @platejs/yjs is declared in package.json but not yet installed.
+        This alias resolves it to a no-op stub so the app loads while
+        `./dev npm install` has not been run yet.
+
+        The stub provides a valid (but inert) YjsPlugin: the editor renders
+        and saves normally in single-user mode. Real-time collaboration is
+        restored the moment @platejs/yjs is installed — remove this alias
+        and the matching one in vitest.config.ts at that point.
+      */
+      '@platejs/yjs/react': fileURLToPath(
+        new URL('./src/lib/platejs-yjs-stub.ts', import.meta.url),
+      ),
     },
   },
 

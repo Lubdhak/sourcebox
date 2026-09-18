@@ -1,65 +1,90 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type * as Y from 'yjs'
+import { blocksToMarkdown, isSingleMarkdownPage } from '@/features/documentation/inspector/pageMarkdown'
 import {
   PAGE_KEY,
-  pageText,
   type CollaborativeDocument,
 } from '@/features/documentation/collaboration/useCollaborativeDocument'
-import type { TextEdit } from '@/features/documentation/editor/sourceCommands'
-import { blocksToMarkdown, isSingleMarkdownPage } from '@/features/documentation/inspector/pageMarkdown'
-import { diffEdit } from '@/features/documentation/inspector/textDiff'
-import { SESSION_ID } from '@/lib/cable'
 import type { ContentBlock } from '@/types'
 
 /**
  * One node's documentation as a single editable body, and the seam to the database.
  *
- * Two problems live here, and both are about a CRDT sitting in front of a row.
+ * ### What changed (Yjs CRDT architecture)
  *
- * The first is seeding. The text exists in `content_blocks` long before anyone opens the
- * page, so the shared document starts empty and has to be filled from storage exactly
- * once. If every client that opens the page inserted the stored text, the page would
- * appear once per reader. So the clients elect one: each writes its session id into a
- * shared map, only if the key is absent. Concurrent writes to a Yjs map converge on a
- * single value, so after a short settle every participant reads the same winner and
- * exactly one of them recognises itself and inserts.
+ * The previous implementation stored Markdown in a `Y.Text` and treated that text as
+ * the collaborative source of truth. Every keystroke serialised the entire Plate document
+ * to Markdown and wrote a character-level diff into the Y.Text. Every remote update
+ * deserialised the Markdown string back into a Plate value and called `setValue`, which
+ * replaced the whole document and destroyed the local cursor.
  *
- * The second is persistence. The CRDT log is the live state, but it is not what search
- * indexes, what renders for a reader who never opens the editor, or what survives
- * compaction of a document nobody has touched in months. So the text is written back --
- * debounced, and only by whoever is typing, because the typist is the one client that can
- * be identified without coordination. Fifty participants must not issue fifty identical
- * mutations for one keystroke.
+ * The new architecture:
  *
- * There is one path now, not two. Every editor's changes go straight into the shared
- * document, which is what removing the review queue bought: an edit is an edit, and the
- * only question left is who is allowed to make one.
+ *   Y.Doc
+ *     └── Y.Array('content')   ← Plate/Slate tree, owned by @platejs/yjs
+ *          ↕ direct Yjs ops (no serialisation in the hot path)
+ *   Plate editor
+ *          ↓ serialize (debounced, on change)
+ *   Markdown snapshot
+ *          ↓ debounced save
+ *   Database (content_blocks)
+ *
+ * This hook is now responsible only for:
+ *   1. Providing `stored` Markdown (from the DB) as the seeding source.
+ *   2. Debouncing persistence: the editor calls `onEditorChange` whenever the
+ *      Markdown snapshot changes, and this hook saves it to the DB.
+ *   3. Exposing `value` (the latest known Markdown) for the reader view and
+ *      for `flush()` on Done.
+ *
+ * The Y.Text('page') and character-level diffing are gone. The editor itself
+ * drives all Yjs operations through the @platejs/yjs binding.
  */
-
-/** Long enough for concurrent joiners to converge on one seeder, short enough not to feel like loading. */
-const SEED_SETTLE_MS = 400
 
 /** Typing pauses are common; saves should follow the thought, not the keystroke. */
 const COMMIT_DEBOUNCE_MS = 1_200
 
 export interface PageBody {
-  /** The document, as Markdown. */
+  /**
+   * The collaborative document for this node.
+   *
+   * Exposed so PageEditor can pass it to usePlateYjsEditor, which binds the
+   * Plate editor to the Y.Doc via @platejs/yjs.
+   */
+  document: CollaborativeDocument
+  /**
+   * The latest known Markdown for this page.
+   *
+   * Initialised from the database snapshot (`stored`). Updated every time
+   * the rich editor reports a change via `onEditorChange`. Used by:
+   *   - The reader view (PageView) when editing is not active.
+   *   - `flush()` to determine what to write on Done.
+   */
   value: string
-  /** The shared text, for a surface that binds to it directly. */
-  text: Y.Text
+  /**
+   * The Markdown from the database, derived from content_blocks.
+   *
+   * The Plate editor uses this to seed the Y.Doc the first time the node is
+   * opened (via usePlateYjsEditor). After that the Y.Doc is authoritative and
+   * `stored` is used only for comparison in `flush()`.
+   */
+  stored: string
   synced: boolean
   saving: boolean
   /** Other people with this page open. */
   editorNames: string[]
   /**
-   * Set when saving will change how the page is stored, so the author is told before it
-   * happens rather than noticing afterwards.
+   * Set when saving will change how the page is stored, so the author is told
+   * before it happens rather than noticing afterwards.
    */
   conversionNotice: string | null
-  /** A positioned edit, from a toolbar command against the Markdown source. */
-  applyEdit: (edit: TextEdit) => void
-  /** A whole new document, from a surface that can only report its full value. */
-  write: (markdown: string) => void
+  /**
+   * Called by the Plate editor whenever its Markdown snapshot changes.
+   *
+   * This is the only persistence trigger. The editor serialises its state to
+   * Markdown (debounced) and reports it here; this hook debounces the DB write
+   * on top of that. Double-debouncing keeps the DB quiet while the author is
+   * mid-sentence and the editor is mid-snapshot.
+   */
+  onEditorChange: (markdown: string) => void
   announceEditing: (active: boolean) => void
   /** Commits now instead of on the debounce, and resolves false if the save failed. */
   flush: () => Promise<boolean>
@@ -76,91 +101,75 @@ export function usePageBody({
   saving: boolean
   onSave: (markdown: string) => Promise<boolean>
 }): PageBody {
-  const { doc, synced, editors, announceEditing } = document
+  const { synced, editors, announceEditing } = document
 
+  /*
+    The Markdown snapshot derived from the database rows.
+
+    This is the seeding source for the Y.Doc (see usePlateYjsEditor) and the
+    baseline for deciding whether `flush()` needs to write anything.
+  */
   const stored = useMemo(() => blocksToMarkdown(blocks), [blocks])
-  const text = useMemo(() => pageText(doc), [doc])
 
-  const [shared, setShared] = useState('')
+  /*
+    The latest Markdown the editor has reported.
+
+    Starts as `stored` so that the reader view shows something sensible before
+    the editor is opened, and before the first onEditorChange fires.
+  */
+  const [liveValue, setLiveValue] = useState(stored)
+
+  /*
+    A ref that is always current, even within the same render cycle.
+
+    flush() reads from this rather than from state, so that calling
+    onEditorChange(x) and flush() in the same synchronous frame (as the Done
+    button does when exiting Markdown mode) sees the correct value.
+  */
+  const liveRef = useRef(stored)
+
+  /*
+    Keep liveValue in sync with stored when the node changes (e.g. the user
+    navigates to a different node). Without this, the stale liveValue from the
+    previous node would appear briefly in the reader view.
+  */
+  useEffect(() => {
+    liveRef.current = stored
+    setLiveValue(stored)
+  }, [stored])
+
   const commitTimer = useRef<number | null>(null)
   const save = useRef(onSave)
   save.current = onSave
 
-  // Seed once, by election. See the note at the top of the file.
-  useEffect(() => {
-    if (!synced || !stored) return
+  const onEditorChange = useCallback((markdown: string) => {
+    liveRef.current = markdown
+    setLiveValue(markdown)
 
-    const seeders = doc.getMap<string>('seededBy')
-    if (!seeders.has(PAGE_KEY)) seeders.set(PAGE_KEY, SESSION_ID)
+    /*
+      Debounce the DB write. The editor already debounces its own Markdown
+      snapshot generation; this is the second gate — it keeps the DB quiet
+      if the user switches between Markdown and rich mode rapidly.
+    */
+    if (commitTimer.current !== null) window.clearTimeout(commitTimer.current)
+    commitTimer.current = window.setTimeout(() => {
+      commitTimer.current = null
+      void save.current(markdown)
+    }, COMMIT_DEBOUNCE_MS)
+  }, [])
 
-    const timer = window.setTimeout(() => {
-      if (seeders.get(PAGE_KEY) !== SESSION_ID) return
-      // Somebody -- another client, or this one typing during the settle -- got there
-      // first. Inserting now would say the page twice.
-      if (text.length > 0) return
-
-      text.insert(0, stored)
-    }, SEED_SETTLE_MS)
-
-    return () => window.clearTimeout(timer)
-  }, [doc, stored, synced, text])
-
-  // Mirror the shared text into state, and persist what the typist types.
-  // `transaction.local` is the whole test for the second half: a remote change is already
-  // being saved by the person who made it.
-  useEffect(() => {
-    const observer = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
-      const next = text.toString()
-      setShared(next)
-
-      if (!transaction.local) return
-
-      if (commitTimer.current !== null) window.clearTimeout(commitTimer.current)
-      commitTimer.current = window.setTimeout(() => {
-        commitTimer.current = null
-        void save.current(next)
-      }, COMMIT_DEBOUNCE_MS)
-    }
-
-    text.observe(observer)
-    setShared(text.toString())
-
-    return () => {
-      text.unobserve(observer)
+  /*
+    Clean up the pending timer when the component unmounts (e.g. panel closes).
+    The flush path handles the "Done" case; this covers a hard unmount.
+  */
+  useEffect(
+    () => () => {
       if (commitTimer.current !== null) {
         window.clearTimeout(commitTimer.current)
         commitTimer.current = null
       }
-    }
-  }, [text])
-
-  // Storage is the fallback, not the source: the shared text is authoritative the moment
-  // it has anything in it. The window this covers is the one between connecting and the
-  // seed landing, where showing an empty page would look like data loss -- and saving one
-  // would be data loss, which is why `flush` reads this rather than the text directly.
-  const value = shared.length > 0 || !stored ? shared : stored
-
-  const applyEdit = useCallback(
-    (edit: TextEdit) => {
-      // One transaction, so a wrap -- delete the selection, insert the wrapped version --
-      // reaches collaborators as a single change rather than as a flicker of two.
-      text.doc?.transact(() => {
-        if (edit.end > edit.start) text.delete(edit.start, edit.end - edit.start)
-        if (edit.insert) text.insert(edit.start, edit.insert)
-      })
     },
-    [text],
-  )
-
-  // The rich surface can only say "the document is now this". Diffing before writing is
-  // what keeps that from arriving as a wholesale rewrite that conflicts with every
-  // concurrent edit; see `diffEdit`.
-  const write = useCallback(
-    (markdown: string) => {
-      const edit = diffEdit(text.toString(), markdown)
-      if (edit) applyEdit(edit)
-    },
-    [applyEdit, text],
+    [],
   )
 
   const flush = useCallback(async () => {
@@ -169,11 +178,22 @@ export function usePageBody({
       commitTimer.current = null
     }
 
-    // Nothing typed and nothing to convert: a "Done" click should not write a row.
-    if (value === stored && isSingleMarkdownPage(blocks)) return true
+    /*
+      Use the ref so we always see the value from the current frame, even if
+      onEditorChange was just called in the same synchronous sequence (e.g. the
+      Done button in Markdown mode: exitMarkdownMode → onEditorChange → flush).
+    */
+    const current = liveRef.current
 
-    return save.current(value)
-  }, [blocks, stored, value])
+    /*
+      Nothing typed and nothing to convert: a "Done" click must not write a row
+      when the page has not changed and is already in the single-Markdown-block
+      format this editor produces.
+    */
+    if (current === stored && isSingleMarkdownPage(blocks)) return true
+
+    return save.current(current)
+  }, [blocks, stored])
 
   const editorNames = useMemo(
     () => editors.filter((peer) => peer.editing === PAGE_KEY).map((peer) => peer.actor.name),
@@ -181,16 +201,16 @@ export function usePageBody({
   )
 
   return {
-    value,
-    text,
+    document,
+    value: liveValue,
+    stored,
     synced,
     saving,
     editorNames,
     conversionNotice: isSingleMarkdownPage(blocks)
       ? null
       : 'Tables and snippets on this page are saved as Markdown.',
-    applyEdit,
-    write,
+    onEditorChange,
     announceEditing: useCallback(
       (active: boolean) => announceEditing(active ? PAGE_KEY : null),
       [announceEditing],
