@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as Y from 'yjs'
 import { blocksToMarkdown, isSingleMarkdownPage } from '@/features/documentation/inspector/pageMarkdown'
 import { dedupeByActor } from '@/features/documentation/collaboration/dedupeByActor'
+import { deriveMarkdownFromDoc } from '@/features/documentation/collaboration/liveMarkdown'
 import {
   PAGE_KEY,
   type CollaborativeDocument,
 } from '@/features/documentation/collaboration/useCollaborativeDocument'
+import { PLATE_CONTENT_KEY } from '@/features/documentation/collaboration/usePlateYjsEditor'
 import type { Collaborator, ContentBlock } from '@/types'
 
 /**
@@ -42,6 +45,13 @@ import type { Collaborator, ContentBlock } from '@/types'
 
 /** Typing pauses are common; saves should follow the thought, not the keystroke. */
 const COMMIT_DEBOUNCE_MS = 1_200
+
+/**
+ * Shorter than `COMMIT_DEBOUNCE_MS`: this drives what a *reader* sees change, not what
+ * gets written to the database, and "the page in front of me just moved" is the kind of
+ * thing that reads as laggy at a much shorter delay than a save ever needs to be.
+ */
+const LIVE_DERIVE_DEBOUNCE_MS = 350
 
 export interface PageBody {
   /**
@@ -111,7 +121,7 @@ export function usePageBody({
   saving: boolean
   onSave: (markdown: string) => Promise<boolean>
 }): PageBody {
-  const { synced, editors, announceEditing } = document
+  const { doc, synced, editors, announceEditing } = document
 
   /*
     The Markdown snapshot derived from the database rows.
@@ -147,6 +157,54 @@ export function usePageBody({
     liveRef.current = stored
     setLiveValue(stored)
   }, [stored])
+
+  /*
+    Keeps the *reader's* view live, not just the editor's.
+
+    Without this, a page open only to be read shows exactly what was true when it was
+    opened -- the DB snapshot underneath (`stored`) does not move until the writer's own
+    debounced save lands and this panel is reopened, and nothing before that tells a
+    reader anything changed at all. The Y.Doc is the one thing every session with this
+    node open already receives updates to, editor or not (see useCollaborativeDocument),
+    so it is also the one live source available to a session with no editor to ask.
+
+    `deriveMarkdownFromDoc` returns null while nobody has seeded this node's Y.Doc yet
+    (a node nobody has opened for editing since this feature shipped); `stored` is
+    already correct for that case, so there is nothing to override it with.
+
+    Debounced, the same as the writer's own snapshot: `usePageBody` runs once per open
+    node regardless of who is editing, so a writer's own keystrokes drive this same
+    effect too, and a full Markdown serialise on every single one -- rather than every
+    settled pause -- is work this hook would be paying for twice.
+  */
+  const liveDeriveTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!synced) return
+
+    const sharedRoot = doc.get(PLATE_CONTENT_KEY, Y.XmlText)
+
+    const applyLive = () => {
+      if (liveDeriveTimer.current !== null) window.clearTimeout(liveDeriveTimer.current)
+      liveDeriveTimer.current = window.setTimeout(() => {
+        liveDeriveTimer.current = null
+        const derived = deriveMarkdownFromDoc(doc)
+        if (derived === null) return
+        liveRef.current = derived
+        setLiveValue(derived)
+      }, LIVE_DERIVE_DEBOUNCE_MS)
+    }
+
+    applyLive()
+    sharedRoot.observeDeep(applyLive)
+    return () => {
+      sharedRoot.unobserveDeep(applyLive)
+      if (liveDeriveTimer.current !== null) {
+        window.clearTimeout(liveDeriveTimer.current)
+        liveDeriveTimer.current = null
+      }
+    }
+  }, [doc, synced])
 
   const commitTimer = useRef<number | null>(null)
   const save = useRef(onSave)

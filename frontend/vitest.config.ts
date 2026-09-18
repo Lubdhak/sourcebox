@@ -15,15 +15,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      /*
-        @platejs/yjs is not installed until `./dev npm install` has been run
-        after the package was added to package.json. The stub provides a no-op
-        YjsPlugin so the test suite can run in the meantime. Remove this alias
-        (and the stub file) once the package is installed.
-      */
-      '@platejs/yjs/react': fileURLToPath(
-        new URL('./src/lib/platejs-yjs-stub.ts', import.meta.url),
-      ),
     },
   },
 

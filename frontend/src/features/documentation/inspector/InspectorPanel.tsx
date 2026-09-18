@@ -16,7 +16,7 @@ import { PageEditor, type MentionCandidate } from '@/features/documentation/insp
 import { useNodeDetail } from '@/features/documentation/inspector/useNodeDetail'
 import { usePageBody } from '@/features/documentation/inspector/usePageBody'
 import { cn } from '@/lib/utils'
-import type { DocumentationNode, NodeRelationship } from '@/types'
+import type { Collaborator, DocumentationNode, NodeRelationship } from '@/types'
 
 /**
  * A node, as a page.
@@ -48,6 +48,7 @@ export function InspectorPanel({
   editable = true,
   back = null,
   initialBlockIndex = null,
+  collaborator,
   onClose,
   onSelectNode,
   onDeleteNode,
@@ -66,6 +67,8 @@ export function InspectorPanel({
    * kept in sync afterward.
    */
   initialBlockIndex?: number | null
+  /** Whoever is signed in. Passed through to `PageEditor`, whose own caret needs it. */
+  collaborator: Collaborator
   onClose: () => void
   onSelectNode: (nodeId: string) => void
   onDeleteNode: (nodeId: string) => void
@@ -213,6 +216,8 @@ export function InspectorPanel({
         <PageEditor
           page={page}
           candidates={candidates}
+          collaborator={collaborator}
+          nodeId={nodeId}
           onSearchMentions={searchMentions}
           onDone={() => setEditing(false)}
         />

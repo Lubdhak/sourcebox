@@ -74,9 +74,9 @@ class NodeDocumentChannel < ApplicationCable::Channel
     transmit({ type: "rejected", reason: e.record.errors.full_messages.first })
   end
 
-  # Cursors and selections inside the text. Relayed, never stored: where someone's caret
-  # was is meaningless a moment later, and persisting it would write a row per keystroke
-  # on top of the ones that matter.
+  # Whether this session has the page open, and whether it is typing. Relayed, never
+  # stored: it describes a moment, not a fact worth having tomorrow, and every client
+  # reconstructs its own copy from this stream rather than asking for one.
   def awareness(data)
     return if @document.nil?
 
@@ -85,6 +85,23 @@ class NodeDocumentChannel < ApplicationCable::Channel
       state: data["state"],
       sessionId: session_id,
       actor: Documentation::WireFormat.actor(current_user, role: @role),
+    })
+  end
+
+  # A Yjs Awareness update: encoded bytes naming a selection inside the text, one caret or
+  # highlight at a time. Opaque here in exactly the way a CRDT `update` is -- this method
+  # exists to authorize and relay, not to decode -- and never recorded, for the reason
+  # `awareness` above already gives about anything describing a single moment.
+  def cursor(data)
+    return if @document.nil?
+
+    payload = decode(data["update"])
+    return if payload.blank?
+
+    NodeDocumentChannel.broadcast_to(@document, {
+      type: "cursor",
+      update: data["update"],
+      sessionId: session_id,
     })
   end
 

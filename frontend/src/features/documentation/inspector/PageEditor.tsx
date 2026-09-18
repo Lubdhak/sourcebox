@@ -12,10 +12,11 @@ import {
   SquareCode,
   Table as TableIcon,
 } from 'lucide-react'
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { insertTable } from '@platejs/table'
 import { toggleCodeBlock } from '@platejs/code-block'
-import { usePlateYjsEditor } from '@/features/documentation/collaboration/usePlateYjsEditor'
+import { CursorEditor, YjsEditor } from '@slate-yjs/core'
+import { asYjsEditor, usePlateYjsEditor } from '@/features/documentation/collaboration/usePlateYjsEditor'
 import { DEFAULT_CODE_LANGUAGE } from '@/features/documentation/blocks/highlight'
 import { MentionSourceProvider } from '@/features/documentation/editor/MentionSource'
 import type { MentionCandidate } from '@/features/documentation/editor/MentionPicker'
@@ -38,6 +39,7 @@ import { TableToolbarButton } from '@/components/ui/table-toolbar-button'
 import { ToolbarButton, ToolbarGroup } from '@/components/ui/toolbar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import type { Collaborator } from '@/types'
 
 /**
  * The page editor: formatted text, a toolbar, and `@` to link another node.
@@ -59,6 +61,17 @@ import { cn } from '@/lib/utils'
  * Remote Yjs updates arrive as precise Slate operations (not a full `setValue`), so
  * the cursor survives a collaborator's keystrokes. Local Plate operations become Yjs
  * operations through the binding — no Markdown serialisation in the hot path.
+ *
+ * ### Whose caret is whose
+ *
+ * `CursorOverlayPlugin` (registered by `usePlateYjsEditor`) turns everyone else's Yjs
+ * Awareness state into a coloured, named decoration over their selection -- but Slate
+ * only re-runs a plugin's `decorate` when *this* editor's own value or selection changes,
+ * and a colleague's cursor moving is neither. The `CursorEditor.on(editor, 'change', ...)`
+ * subscription below is what notices anyway: it forces a re-render on every remote
+ * cursor change, which is what makes `decorate` run again with fresh data. Read mode has
+ * no such subscription and cannot show one -- see `usePageBody`'s `viewers` for what a
+ * reader sees instead, which is presence, not position.
  *
  * ### Markdown mode
  *
@@ -88,11 +101,17 @@ const SNAPSHOT_DEBOUNCE_MS = 600
 export function PageEditor({
   page,
   candidates,
+  collaborator,
+  nodeId,
   onSearchMentions,
   onDone,
 }: {
   page: PageBody
   candidates: MentionCandidate[]
+  /** Whoever is signed in, so their own caret shows everyone else the right name and colour. */
+  collaborator: Collaborator
+  /** Fed to the deterministic seed -- see `usePlateYjsEditor` for why it needs one. */
+  nodeId: string
   onSearchMentions: (query: string) => Promise<MentionCandidate[]>
   onDone: () => void
 }) {
@@ -103,17 +122,37 @@ export function PageEditor({
     The Plate editor, bound to the collaborative Y.Doc via @platejs/yjs.
 
     usePlateYjsEditor handles:
-      - Adding YjsPlugin to the plugin set.
-      - Seeding the Y.Doc from page.stored when it is empty.
-      - The election mechanism that prevents double-seeding on concurrent joins.
+      - Adding YjsPlugin (and the cursor overlay) to the plugin set.
+      - Seeding the Y.Doc from page.stored when it is empty, deterministically --
+        concurrent joiners derive identical bytes, so there is nothing to elect.
+      - Connecting the binding once seeding has resolved.
+
+    `ready` goes true only once connecting has actually happened; see `PlateContent`'s
+    `readOnly` below for why that matters, and the hook's own class comment for why it is
+    not simply `page.synced`.
 
     The editor instance is stable for the lifetime of this component; recreating
     it would disconnect the Yjs binding and lose in-flight operations.
   */
-  const editor = usePlateYjsEditor({
+  const { editor, ready } = usePlateYjsEditor({
     document: page.document,
     stored: page.stored,
+    collaborator,
+    nodeId,
   })
+
+  // See the class comment's "Whose caret is whose" section: this is what makes a
+  // colleague's cursor moving actually repaint.
+  const [, redecorate] = useReducer((tick: number) => tick + 1, 0)
+
+  useEffect(() => {
+    if (!CursorEditor.isCursorEditor(editor)) return
+
+    const onCursorsChanged = () => redecorate()
+    CursorEditor.on(editor, 'change', onCursorsChanged)
+
+    return () => CursorEditor.off(editor, 'change', onCursorsChanged)
+  }, [editor])
 
   /*
     Snapshot timer: fires when the Plate editor changes (via the <Plate onChange>
@@ -124,6 +163,24 @@ export function PageEditor({
   const snapshotTimer = useRef<number | null>(null)
 
   const scheduleSnapshot = useCallback(() => {
+    /*
+      Cursor position out, on every change rather than debounced with the snapshot below:
+      a colleague's highlight lagging the snapshot's 600 ms would be a caret that visibly
+      trails where someone actually is, which defeats the point of drawing one at all.
+
+      Wrapped rather than left to `@slate-yjs/core`'s own auto-send (disabled in
+      `usePlateYjsEditor`, see that config's comment): a structural edit can produce a
+      selection this call is not always able to encode, and dropping *one* position
+      update is the right amount of damage for that -- letting it throw uncaught is not.
+    */
+    if (CursorEditor.isCursorEditor(editor) && YjsEditor.connected(asYjsEditor(editor))) {
+      try {
+        CursorEditor.sendCursorPosition(editor)
+      } catch {
+        // See the comment above: one skipped update, not a broken editor.
+      }
+    }
+
     if (snapshotTimer.current !== null) window.clearTimeout(snapshotTimer.current)
     snapshotTimer.current = window.setTimeout(() => {
       snapshotTimer.current = null
@@ -291,7 +348,7 @@ export function PageEditor({
         <Plate editor={editor} onChange={scheduleSnapshot}>
           <MentionSourceProvider candidates={candidates} onSearchMentions={onSearchMentions}>
             <FixedToolbar className="justify-start gap-0.5 border-b border-border px-2 py-1.5">
-              <PageToolbar disabled={!page.synced || mode === 'markdown'} />
+              <PageToolbar disabled={!ready || mode === 'markdown'} />
 
               {/*
                 The escape hatch: shows the Markdown that will be saved, and lets
@@ -323,7 +380,7 @@ export function PageEditor({
 
                   <PlateContent
                     className="documentation-markdown min-h-full py-4 pl-12 pr-6 text-sm leading-relaxed focus-visible:outline-none"
-                    readOnly={!page.synced}
+                    readOnly={!ready}
                     aria-label="Page content"
                     placeholder={PLACEHOLDER}
                     onFocus={() => page.announceEditing(true)}

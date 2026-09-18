@@ -2,10 +2,20 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useMemo } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { PageEditor } from '@/features/documentation/inspector/PageEditor'
 import { usePageBody } from '@/features/documentation/inspector/usePageBody'
-import type { ContentBlock } from '@/types'
+import type { Collaborator, ContentBlock } from '@/types'
+
+const AUTHOR: Collaborator = {
+  id: '1',
+  name: 'Ada Lovelace',
+  email: 'ada@sourcebox.dev',
+  avatarUrl: null,
+  colorSeed: 1,
+  role: 'EDITOR',
+}
 
 /**
  * The editor over a real collaborative document, with the socket left out.
@@ -59,8 +69,10 @@ function Harness({
     [initial],
   )
 
+  const awareness = useMemo(() => new Awareness(doc), [doc])
+
   const page = usePageBody({
-    document: { doc, synced: true, connected: true, editors: [], announceEditing: () => {} },
+    document: { doc, awareness, synced: true, connected: true, editors: [], announceEditing: () => {} },
     blocks,
     saving: false,
     onSave,
@@ -70,14 +82,24 @@ function Harness({
     <PageEditor
       page={page}
       candidates={candidates}
+      collaborator={AUTHOR}
+      nodeId="node-1"
       onSearchMentions={onSearchMentions}
       onDone={onDone}
     />
   )
 }
 
+/*
+ * An async find, not a sync get: `PlateContent` renders with no `role="textbox"` at all
+ * while `usePlateYjsEditor`'s `ready` is still false (slate-react's own choice --
+ * `role: readOnly ? undefined : 'textbox'` -- not this codebase's), and `ready` needs at
+ * least the width of a microtask (seeding awaits `crypto.subtle.digest`) after mount
+ * before it can turn true. See `usePlateYjsEditor`'s class comment, "Why the caller needs
+ * `ready`, not just `editor`", for why that gate exists at all.
+ */
 function surface() {
-  return screen.getByRole('textbox', { name: 'Page content' })
+  return screen.findByRole('textbox', { name: 'Page content' })
 }
 
 function source() {
@@ -91,8 +113,8 @@ describe('PageEditor', () => {
 
     render(<Harness onSave={onSave} />)
 
-    // Wait for the editor to mount (no seeding happens — nothing to seed from).
-    await waitFor(() => expect(surface()).toBeDefined())
+    // Wait for the editor to mount and connect (no seeding happens — nothing to seed from).
+    await surface()
     await user.click(screen.getByRole('button', { name: 'Markdown' }))
 
     /*
@@ -109,7 +131,7 @@ describe('PageEditor', () => {
     */
     render(<Harness initial={'## Capture\n\nHandles **capture** and refunds.'} />)
 
-    const page = surface()
+    const page = await surface()
 
     await waitFor(() => expect(page.querySelector('h2')?.textContent).toBe('Capture'), {
       timeout: 2000,
@@ -143,7 +165,7 @@ describe('PageEditor', () => {
 
     render(<Harness initial={initial} />)
 
-    const page = surface()
+    const page = await surface()
 
     await waitFor(() => expect(page.querySelector('h1')?.textContent).toBe('Payments'), {
       timeout: 2000,
@@ -165,7 +187,8 @@ describe('PageEditor', () => {
     render(<Harness initial={'## Capture\n\nHandles capture.'} />)
 
     // Wait for seeding and rendering.
-    await waitFor(() => expect(surface().querySelector('h2')?.textContent).toBe('Capture'), {
+    const page = await surface()
+    await waitFor(() => expect(page.querySelector('h2')?.textContent).toBe('Capture'), {
       timeout: 2000,
     })
 
@@ -182,7 +205,7 @@ describe('PageEditor', () => {
     const user = userEvent.setup()
     render(<Harness initial={'- first\n- second'} />)
 
-    await waitFor(() => expect(surface()).toBeDefined())
+    await surface()
     await user.click(screen.getByRole('button', { name: 'Markdown' }))
 
     const markdown = source()
@@ -231,7 +254,8 @@ describe('PageEditor', () => {
     render(<Harness initial={initial} onSave={onSave} onDone={onDone} />)
 
     // Wait for the seeded content to render.
-    await waitFor(() => expect(surface().querySelector('h2')).not.toBeNull(), { timeout: 2000 })
+    const page = await surface()
+    await waitFor(() => expect(page.querySelector('h2')).not.toBeNull(), { timeout: 2000 })
 
     await user.click(screen.getByRole('button', { name: 'Done' }))
 
@@ -249,7 +273,7 @@ describe('PageEditor', () => {
     const user = userEvent.setup()
     render(<Harness initial={'Handles capture.'} />)
 
-    await waitFor(() => expect(surface().textContent).toContain('Handles capture.'), {
+    await waitFor(async () => expect((await surface()).textContent).toContain('Handles capture.'), {
       timeout: 2000,
     })
 
@@ -262,8 +286,14 @@ describe('PageEditor', () => {
     // Then toggle back to rich mode.
     await user.click(screen.getByRole('button', { name: 'Markdown' }))
 
-    // After switching back, the rich editor shows the updated text.
-    await waitFor(() => expect(surface().textContent).toContain('Refunds too.'), {
+    /*
+      After switching back, the rich editor shows the updated text -- read via a fresh
+      query rather than a `page` captured before the round trip through Markdown mode:
+      `PageEditor` renders `<PlateContent>` on one side of `mode === 'rich' ? ... : ...`,
+      so leaving and re-entering rich mode unmounts and remounts it. A reference held
+      across that boundary points at a node this document no longer has anywhere in it.
+    */
+    await waitFor(async () => expect((await surface()).textContent).toContain('Refunds too.'), {
       timeout: 2000,
     })
   })

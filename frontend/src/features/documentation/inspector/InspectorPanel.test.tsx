@@ -2,22 +2,28 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InspectorPanel } from '@/features/documentation/inspector/InspectorPanel'
-import type { ContentBlock } from '@/types'
+import type { Collaborator, ContentBlock } from '@/types'
 
 vi.mock('@/features/documentation/collaboration/useCollaborativeDocument', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/documentation/collaboration/useCollaborativeDocument')>()
   const { useMemo } = await import('react')
   const Y = await import('yjs')
+  const { Awareness } = await import('y-protocols/awareness')
 
   return {
     ...actual,
-    useCollaborativeDocument: (nodeId: string | null) => ({
-      doc: useMemo(() => new Y.Doc(), [nodeId]),
-      synced: true,
-      connected: true,
-      editors: [],
-      announceEditing: () => {},
-    }),
+    useCollaborativeDocument: (nodeId: string | null) => {
+      const doc = useMemo(() => new Y.Doc(), [nodeId])
+
+      return {
+        doc,
+        awareness: useMemo(() => new Awareness(doc), [doc]),
+        synced: true,
+        connected: true,
+        editors: [],
+        announceEditing: () => {},
+      }
+    },
   }
 })
 
@@ -80,6 +86,15 @@ function detail(overrides: Partial<NodeDetail> = {}): NodeDetail {
   }
 }
 
+const AUTHOR: Collaborator = {
+  id: '1',
+  name: 'Ada Lovelace',
+  email: 'ada@sourcebox.dev',
+  avatarUrl: null,
+  colorSeed: 1,
+  role: 'EDITOR',
+}
+
 function renderPanel(props: Partial<Parameters<typeof InspectorPanel>[0]> = {}) {
   const handlers = {
     onClose: vi.fn(),
@@ -93,6 +108,7 @@ function renderPanel(props: Partial<Parameters<typeof InspectorPanel>[0]> = {}) 
     <InspectorPanel
       nodeId="7"
       spaceId="space-1"
+      collaborator={AUTHOR}
       {...handlers}
       {...props}
     />,

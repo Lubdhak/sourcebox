@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { cable, SESSION_ID, subscriptionId, type RealtimeEnvelope } from '@/lib/cable'
 import { logger } from '@/lib/logger'
@@ -19,11 +20,22 @@ import type { Collaborator } from '@/features/documentation/collaboration/useSpa
  *   sync       server -> client   snapshot plus the updates recorded after it
  *   update     both ways          one encoded Yjs update
  *   awareness  both ways          who has this node open, and who is typing; never stored
+ *   cursor     both ways          one encoded Yjs *Awareness* update; never stored
  *   left       server -> client   a session's subscription ended
  *   compact    client -> server   a merged snapshot, so the log can be truncated
  *
  * Compaction is done by a client because only a client can merge. The server's job is to
  * refuse a snapshot that claims to cover updates it has not seen.
+ *
+ * `awareness` and `cursor` look alike -- two names for "tell everyone something about
+ * yourself that nobody should have to remember" -- and stay two protocols because they
+ * answer different questions at different rates. `awareness` is ours: a page open or not,
+ * typing or not, sent on the change and answered once to a newcomer, the same shape a
+ * human would describe it in. `cursor` is Yjs's own Awareness protocol, encoded bytes
+ * neither this file nor Rails looks inside -- it carries a *selection*, in the
+ * fine-grained, every-keystroke-moves-it way `@slate-yjs/core`'s `withCursors` expects,
+ * which is what actually draws a colleague's caret and highlight inside the text. One
+ * could describe the other's job in prose; neither could do it.
  */
 
 /**
@@ -47,6 +59,14 @@ export interface TextPeer {
 
 export interface CollaborativeDocument {
   doc: Y.Doc
+  /**
+   * Yjs's own Awareness instance for `doc`, shared with `usePlateYjsEditor` so that
+   * `@slate-yjs/core`'s cursor tracking and this hook's transport are talking about the
+   * same object. Created and destroyed alongside `doc` for the same reason they are the
+   * same lifecycle: an awareness instance from the node just left describing cursors in a
+   * document nobody here has open would be nonsense the moment it arrived.
+   */
+  awareness: Awareness
   /** False until the server's state has been applied, so an editor does not show an empty document. */
   synced: boolean
   connected: boolean
@@ -89,6 +109,10 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
   // is the identity of the thing being edited -- reusing one across nodes would merge two
   // unrelated texts into each other.
   const doc = useMemo(() => new Y.Doc(), [nodeId])
+  // Bound to `doc` explicitly rather than left for @platejs/yjs to create its own: the
+  // plugin only ever sees the editor open, and it is this hook's channel, not the
+  // editor's, that has anywhere to send an Awareness update.
+  const awareness = useMemo(() => new Awareness(doc), [doc])
 
   const [synced, setSynced] = useState(false)
   const [connected, setConnected] = useState(false)
@@ -101,7 +125,12 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
   // than the time between a focus change and the next render.
   const myEditing = useRef<string | null>(null)
 
-  useEffect(() => () => doc.destroy(), [doc])
+  useEffect(() => {
+    return () => {
+      awareness.destroy()
+      doc.destroy()
+    }
+  }, [doc, awareness])
 
   useEffect(() => {
     if (!nodeId || !enabled) return
@@ -112,6 +141,12 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
     // subscription rather than a ref: it describes what *this* channel connection knows,
     // and a new node -- a new subscription -- has heard from no one yet.
     const answeredSessions = new Set<string>()
+
+    // The Yjs Awareness clientIds this client has already answered, kept apart from
+    // `answeredSessions` because they are different id spaces answering the same
+    // question -- Yjs assigns its own random numeric id per Y.Doc instance, which this
+    // hook never sees outside of `awareness` itself.
+    const answeredClients = new Set<number>()
 
     // `myEditing` is a ref because `announceEditing` needs to reach it from outside this
     // effect, but its value describes standing in *this* node's document -- carrying a
@@ -176,6 +211,13 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
               }
               break
             }
+            case 'cursor':
+              if (message.sessionId === SESSION_ID || !message.update) return
+              // The matching `onAwarenessChange` listener below does the rest: applying
+              // this fires it with `origin === 'remote'`, which is where a newcomer among
+              // the client ids this update names gets answered.
+              applyAwarenessUpdate(awareness, toBytes(message.update), 'remote')
+              break
             // The other end of `awareness`: a session that had this node open no longer
             // does. Without it, closing a tab would leave a face in every remaining
             // viewer's roster for a document nobody is looking at anymore.
@@ -228,6 +270,20 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
         null in case the editor has already claimed focus by the time sync completes.
       */
       channel.perform('awareness', { state: { editing: myEditing.current } })
+
+      /*
+        The Awareness half of the same "I have arrived" announcement.
+
+        Our own local state is very likely still empty at this instant -- `usePlateYjsEditor`
+        has not necessarily called `YjsEditor.connect` yet, and cursor data is not sent
+        until it does -- but the update still names our clientId, which is the only thing
+        this round needs to accomplish: it is what lets an *already-present* peer's own
+        `onAwarenessChange` recognise us as new and answer. Our real cursor state, once
+        there is one, goes out through that same listener the moment it is set.
+      */
+      channel.perform('cursor', {
+        update: toBase64(encodeAwarenessUpdate(awareness, [awareness.clientID])),
+      })
     }
 
     // Local edits out. Filtering on origin is what separates "the user typed" from "we
@@ -238,19 +294,56 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
       channel.perform('update', { update: toBase64(update) })
     }
 
+    /*
+     * One listener for both directions of the Awareness protocol, the way `applyAwarenessUpdate`
+     * itself does not distinguish them: it fires this same 'update' event whether the
+     * change came from a local `setLocalStateField` (our own cursor moved) or from
+     * `applyAwarenessUpdate` above (someone else's did).
+     *
+     * The `origin` argument is what tells the two apart, and each does a different job --
+     * a local change is relayed, unconditionally; a remote one is only ever inspected for
+     * *sessions the answer-once handshake has not seen*, and only they get an answer.
+     * Both branches speak in Yjs clientIds, which is what `added`/`updated`/`removed`
+     * name -- never our own `SESSION_ID`, which this protocol does not know exists.
+     */
+    const onAwarenessChange = (
+      changes: { added: number[]; updated: number[]; removed: number[] },
+      origin: unknown,
+    ) => {
+      if (disposed) return
+
+      if (origin === 'remote') {
+        const newClients = changes.added.filter((clientId) => !answeredClients.has(clientId))
+        if (newClients.length === 0) return
+
+        for (const clientId of newClients) answeredClients.add(clientId)
+        channel.perform('cursor', {
+          update: toBase64(encodeAwarenessUpdate(awareness, [awareness.clientID])),
+        })
+        return
+      }
+
+      const changedClients = [...changes.added, ...changes.updated, ...changes.removed]
+      if (changedClients.length === 0) return
+
+      channel.perform('cursor', { update: toBase64(encodeAwarenessUpdate(awareness, changedClients)) })
+    }
+
     doc.on('update', onUpdate)
+    awareness.on('update', onAwarenessChange)
     subscription.current = channel
 
     return () => {
       disposed = true
       doc.off('update', onUpdate)
+      awareness.off('update', onAwarenessChange)
       channel.unsubscribe()
       subscription.current = null
       setSynced(false)
       setConnected(false)
       setEditors({})
     }
-  }, [doc, enabled, nodeId])
+  }, [doc, awareness, enabled, nodeId])
 
   const announceEditing = useCallback((editing: string | null) => {
     myEditing.current = editing
@@ -259,5 +352,5 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
 
   const roster = useMemo(() => Object.values(editors), [editors])
 
-  return { doc, synced, connected, editors: roster, announceEditing }
+  return { doc, awareness, synced, connected, editors: roster, announceEditing }
 }

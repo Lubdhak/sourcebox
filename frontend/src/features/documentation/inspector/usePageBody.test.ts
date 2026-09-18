@@ -1,5 +1,6 @@
 import { renderHook, act } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { usePageBody } from '@/features/documentation/inspector/usePageBody'
 import type { ContentBlock } from '@/types'
@@ -24,6 +25,7 @@ function makeDoc() {
 function makeCollaborativeDocument(doc: Y.Doc) {
   return {
     doc,
+    awareness: new Awareness(doc),
     synced: true,
     connected: true,
     editors: [],

@@ -385,6 +385,7 @@ export default function DocumentationSpaceShow({
       // Only for the node the link actually named -- selecting a different one, even
       // before this one has been left, is not the arrival this paragraph was promised to.
       initialBlockIndex={graph.selectedNodeId === linkedBlock.nodeId ? linkedBlock.blockIndex : null}
+      collaborator={collaborator}
       back={history.back ? { title: history.back.title, onBack: goBack } : null}
       onClose={() => {
         selectNode(null)

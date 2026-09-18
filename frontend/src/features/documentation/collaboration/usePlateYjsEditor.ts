@@ -1,18 +1,25 @@
 import { MarkdownPlugin } from '@platejs/markdown'
+import { slateToDeterministicYjsState } from '@platejs/yjs'
 import { YjsPlugin } from '@platejs/yjs/react'
+import { CursorEditor, YjsEditor } from '@slate-yjs/core'
 import * as Y from 'yjs'
-import { usePlateEditor } from 'platejs/react'
-import { useEffect, useRef } from 'react'
+import { usePlateEditor, type PlateEditor } from 'platejs/react'
+import { useEffect, useState } from 'react'
+import {
+  CursorOverlayPlugin,
+  cursorDataFor,
+} from '@/features/documentation/collaboration/cursorOverlay'
 import { DOCUMENTATION_PLUGINS } from '@/features/documentation/editor/plugins'
-import { SESSION_ID } from '@/lib/cable'
 import type { CollaborativeDocument } from '@/features/documentation/collaboration/useCollaborativeDocument'
+import type { Collaborator } from '@/types'
 
 /**
  * The key inside the Y.Doc that holds the Plate/Slate document tree.
  *
- * @platejs/yjs uses this key to find or create the shared Y.Array. Keep it
- * consistent with whatever @platejs/yjs defaults to. If that ever changes,
- * update this constant and re-seed existing documents.
+ * `@platejs/yjs` binds a `Y.XmlText` at this key by default (`ydoc.get('content',
+ * Y.XmlText)`, inside its own `withPlateYjs`) -- not configurable here, only matched: this
+ * constant exists so the one other place that needs the same key, the seeding check
+ * below, cannot drift from it by a typo.
  *
  * This is NOT the same key that used to hold the Markdown text (`'page'`).
  * The Markdown text is now a derived, serialized snapshot — not the CRDT.
@@ -20,40 +27,88 @@ import type { CollaborativeDocument } from '@/features/documentation/collaborati
 export const PLATE_CONTENT_KEY = 'content'
 
 /**
- * How long to wait for concurrent joiners to converge on one seeder before
- * the winner actually writes. Long enough for a late joiner to recognise it
- * lost the election; short enough not to feel like loading.
+ * `@slate-yjs/core`'s functions are typed against a plain Slate `BaseEditor & YjsEditor`,
+ * built from Slate's own generic node types. A Plate editor genuinely has every one of
+ * those methods -- `withPlateYjs` mutates the very object `usePlateEditor` returns -- but
+ * its *type* is Plate's own, generic over its plugin list instead, and the two do not
+ * line up structurally. The cast is the honest way to say so, once, rather than at every
+ * call site below.
  */
-const SEED_SETTLE_MS = 400
+export function asYjsEditor(editor: PlateEditor): YjsEditor {
+  return editor as unknown as YjsEditor
+}
 
 /**
  * A Plate editor bound to the collaborative Y.Doc via @platejs/yjs.
  *
- * The document model is the Plate/Slate tree, stored in a Y.Array inside the
- * Y.Doc. Markdown is NOT the CRDT — it is derived from the Plate tree on
- * demand and written to the database as a periodic snapshot.
+ * The document model is the Plate/Slate tree, stored in a `Y.XmlText` inside the Y.Doc.
+ * Markdown is NOT the CRDT — it is derived from the Plate tree on demand and written to
+ * the database as a periodic snapshot.
  *
  * Architecture:
  *
  *   Y.Doc
- *     └── Y.Array(PLATE_CONTENT_KEY)   ← canonical collaborative state
- *          ↕ @platejs/yjs
+ *     └── Y.XmlText(PLATE_CONTENT_KEY)  ← canonical collaborative state
+ *          ↕ @platejs/yjs (withYjs, from @slate-yjs/core)
  *   Plate / Slate document model        ← local rendering model
  *          ↓ serialize (debounced)
  *   Markdown                            ← persistence / export / LLM
  *
- * Transport is handled separately by useCollaborativeDocument, which sends and
- * receives binary Yjs updates over Action Cable. The server never decodes
- * those bytes — it just relays and logs them. Switching from Y.Text(Markdown)
- * to Y.Array(PlateNodes) requires no server changes.
+ * Transport is handled separately by useCollaborativeDocument, which sends and receives
+ * binary Yjs updates -- for both the document and, since this file also configures
+ * `cursors`, Yjs's Awareness protocol -- over Action Cable. The server never decodes those
+ * bytes; it relays and, for the document only, logs them.
  *
- * Seeding — moving stored Markdown into the Y.Doc for the first time — uses the
- * same election mechanism the old Y.Text approach used. The first client to win
- * the map key is the only one that writes; concurrent joiners yield.
+ * ### Why this file calls `YjsEditor.connect` itself, rather than `yjs.init()`
+ *
+ * `@platejs/yjs` ships a `yjs.init()` API that seeds, connects, and more -- but `init`
+ * requires at least one entry in its `providers` array, and throws without one. A
+ * provider is `@platejs/yjs`'s own transport abstraction (hocuspocus, webrtc, indexeddb),
+ * and this application already has a transport: the Action Cable channel
+ * `useCollaborativeDocument` owns, which relays raw Yjs bytes exactly the way a provider
+ * would, just not through `@platejs/yjs`'s registry. Writing a do-nothing provider merely
+ * to satisfy `init`'s guard would be more code and more indirection than doing, by hand,
+ * the two things this application actually needs from it -- seeding and connecting, in
+ * that order, for the reason the next section gives.
+ *
+ * ### Why seeding happens before `YjsEditor.connect`, not through `editor.tf.setValue`
+ *
+ * `YjsEditor.connect` does two things: it loads whatever is already in the shared text
+ * into the editor, and it force-normalizes the result. On a genuinely empty document, this
+ * project's own schema plugins (a required trailing paragraph, among others) mean that
+ * normalize does not merely accept the empty state -- it *edits* it, inserting the
+ * paragraph a document is not allowed to be without. Because the editor is connected the
+ * instant before this runs, that insertion is a real Slate operation, which the binding
+ * mirrors into the Y.Doc as a real write. A moment later, this hook's own seeding logic
+ * would ask "does the shared text already have content" and, finding that one paragraph,
+ * answer yes -- and never write the actual stored Markdown at all. Every node opened for
+ * the first time would silently keep its placeholder paragraph and lose everything that
+ * had been written about it.
+ *
+ * `slateToDeterministicYjsState` (from `@platejs/yjs`, built for exactly this moment in
+ * `init`) sidesteps the whole question by writing directly to the Y.Doc, before the editor
+ * exists to normalize anything. It also removes the need for the election this file used
+ * to run: every peer opening the same empty node derives the *same* bytes from the same
+ * inputs (the node's id, the same stored Markdown), so two peers seeding at once are two
+ * peers writing identical Yjs operations -- which a CRDT merges into one, not a race.
+ *
+ * ### Why the caller needs `ready`, not just `editor`
+ *
+ * Seeding awaits `crypto.subtle.digest` before it writes anything, which means there is a
+ * real, if short, span of time after mount during which the editor exists but is neither
+ * seeded nor connected. A click during that span is a click into whatever the initial
+ * value happened to render -- and, worse, the resulting selection change asks
+ * `withCursors` to translate a Slate path into a Y position against a shared root that
+ * connect has not attached anything to yet, which is not a question that path has an
+ * answer to. `ready` is what `PageEditor` holds `PlateContent` read-only for, the same way
+ * it already did for `page.synced`, to close that span rather than let a fast click land
+ * inside it.
  */
 export function usePlateYjsEditor({
   document,
   stored,
+  collaborator,
+  nodeId,
 }: {
   document: CollaborativeDocument
   /**
@@ -64,8 +119,13 @@ export function usePlateYjsEditor({
    * moment it has content.
    */
   stored: string
+  /** Whoever is signed in, for the name and colour their caret shows to everyone else. */
+  collaborator: Collaborator
+  /** Fed to `slateToDeterministicYjsState` as the seed's id, so two different empty nodes
+   * seeded from coincidentally identical Markdown do not derive the same bytes. */
+  nodeId: string
 }) {
-  const { doc, synced } = document
+  const { doc, awareness, synced } = document
 
   const editor = usePlateEditor({
     plugins: [
@@ -74,34 +134,52 @@ export function usePlateYjsEditor({
         The Yjs binding.
 
         YjsPlugin wraps the editor with withYjs (from @slate-yjs/core internally),
-        attaching the Y.Array at PLATE_CONTENT_KEY to the Slate children array.
-        After this:
-          - Every Slate operation is mirrored to the Y.Array as Yjs operations.
+        attaching the Y.XmlText at PLATE_CONTENT_KEY to the Slate children array. After
+        this:
+          - Every Slate operation is mirrored to the Y.XmlText as Yjs operations.
           - Every remote Yjs update is applied as precise Slate operations, not a
             full document replacement.
 
         The transport (doc.on('update') / Y.applyUpdate) lives in
         useCollaborativeDocument and is entirely unaware of what is stored inside
-        the Y.Doc. Switching from Markdown text to Plate nodes requires no change
-        to the transport layer.
+        the Y.Doc.
+
+        `cursors.data` is this client's own presence, sent the moment `YjsEditor.connect`
+        below runs (see `withCursors`'s `connect`, in `@slate-yjs/core`) and again every
+        time the local selection moves. `CursorOverlayPlugin` is what turns everyone
+        else's copy of it back into a coloured, named highlight in the text.
+
+        `autoSend: false`: `withCursors`'s own auto-send calls `sendCursorPosition`
+        synchronously inside `onChange`, which walks the *new* selection's path against
+        `sharedRoot` to encode it. Some structural edits -- a code block's own
+        `insertBreak`, splitting a code line rather than a paragraph, is the one this was
+        found from -- produce a selection whose path `sharedRoot` cannot yet answer for at
+        that exact point in `onChange`, and `@slate-yjs/core` has no guard for it: it
+        throws, uncaught, out of a promise nothing here is in a position to catch.
+        `PageEditor`'s own `sendCursorPositionSafely` (in its `scheduleSnapshot`) is this
+        codebase's replacement -- same call, wrapped in a try/catch that drops one
+        position update rather than letting a code block break the editor for everyone
+        looking at it.
       */
       YjsPlugin.configure({
         options: {
           ydoc: doc,
+          awareness,
+          cursors: { data: cursorDataFor(collaborator), autoSend: false },
         },
       }),
+      CursorOverlayPlugin,
     ],
     /*
       Initialise from stored Markdown so the editor is never blank when opened.
 
-      Without an initial value the editor starts empty and waits for the seeding
-      election (network round-trip + 400 ms settle) before showing any content.
-      The user sees a blank page and cannot interact with anything.
+      Without an initial value the editor starts empty until seeding and `YjsEditor.connect`
+      below have both run. The user would see a blank page for the width of a network
+      round-trip.
 
-      With an initial value the editor renders content immediately. When the real
-      @platejs/yjs is installed, the Y.Doc state overwrites this on connect if
-      the collaborative document is newer. If the Y.Doc is still empty (first
-      open), the seeding below writes the same content into it via Yjs ops.
+      Once connected, `YjsEditor.connect` overwrites this with whatever the Y.Doc actually
+      holds -- the initial value is only ever what appears in the gap before that, not a
+      competing source of truth.
     */
     value: stored
       ? (instance) => instance.getApi(MarkdownPlugin).markdown.deserialize(stored)
@@ -109,66 +187,70 @@ export function usePlateYjsEditor({
     shouldNormalizeEditor: true,
   })
 
-  // Guard so the effect fires at most once per doc lifecycle.
-  const seeded = useRef(false)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    if (!synced || seeded.current) return
+    if (!synced) return
 
-    /*
-      The shared root that @platejs/yjs manages. If it already has content
-      from a previous collaborative session, nothing to seed.
+    let cancelled = false
 
-      Note: @platejs/yjs uses Y.Array internally (via @slate-yjs/core). We
-      peek at length to decide whether seeding is needed without modifying the
-      Y.Doc ourselves.
-    */
-    const sharedRoot = doc.get(PLATE_CONTENT_KEY, Y.Array)
+    async function seedThenConnect() {
+      /*
+        Seed first, at the Y.Doc level, before the editor that would normalize an empty
+        one exists to do so. See the class comment's second section for why the order
+        matters.
+      */
+      const sharedRoot = doc.get(PLATE_CONTENT_KEY, Y.XmlText)
 
-    if (sharedRoot.length > 0) {
-      seeded.current = true
-      return
-    }
+      if (sharedRoot.length === 0 && stored) {
+        const initialNodes = editor.getApi(MarkdownPlugin).markdown.deserialize(stored)
+        const update = await slateToDeterministicYjsState(nodeId, initialNodes)
+        /*
+          Checked again, immediately after the one genuine await in this function: `stored`
+          arrives from `usePageBody`, itself downstream of a GraphQL fetch that can still be
+          in flight the moment this effect first runs, empty until it resolves. If it
+          resolves *during* this await, `stored` (and this whole effect) reruns with the
+          real value -- the run that got here first is exactly the one that must not
+          also finish, on the empty value it started with.
+        */
+        if (cancelled) return
 
-    if (!stored) {
-      // Nothing in storage and nothing in the Y.Doc — brand new document.
-      seeded.current = true
-      return
-    }
+        // A second peer's identical, concurrently-generated update is a no-op here --
+        // Yjs deduplicates by clientId and clock, which is what makes this safe without
+        // the coordination an election would otherwise need.
+        Y.applyUpdate(doc, update)
+      }
 
-    /*
-      Election: the first client to set the key seeds; all others yield.
+      if (cancelled) return
 
-      Yjs maps converge on a single value for concurrent sets, so after the
-      settle period every participant reads the same winner. The loser checks
-      the key against its own session id and no-ops.
-    */
-    const seeders = doc.getMap<string>('seededBy')
-    if (!seeders.has(PLATE_CONTENT_KEY)) {
-      seeders.set(PLATE_CONTENT_KEY, SESSION_ID)
-    }
-
-    const timer = window.setTimeout(() => {
-      seeded.current = true
-
-      if (seeders.get(PLATE_CONTENT_KEY) !== SESSION_ID) return // Lost the election.
-      if (sharedRoot.length > 0) return // Someone else already seeded.
+      const yjsEditor = asYjsEditor(editor)
+      YjsEditor.connect(yjsEditor)
 
       /*
-        Deserialize stored Markdown → Plate value, then apply via the editor.
-
-        Because YjsPlugin is active, editor.tf.setValue propagates through the
-        withYjs binding as a series of Yjs insert operations — not a raw
-        Y.Doc mutation. Other clients receive those operations and apply them
-        as Slate changes.
+        `withCursors`'s own `connect` sends this for us -- but only when `autoSend` is
+        true, and `autoSend` is false here (see the `cursors` option's comment above).
+        Sent by hand instead: unlike a position, this is a plain Awareness field write
+        with no path to walk and nothing in it that can fail the way that walk can.
       */
-      const value = editor.getApi(MarkdownPlugin).markdown.deserialize(stored)
-      editor.tf.setValue(value)
-      editor.tf.normalize({ force: true })
-    }, SEED_SETTLE_MS)
+      if (CursorEditor.isCursorEditor(yjsEditor)) {
+        CursorEditor.sendCursorData(yjsEditor, cursorDataFor(collaborator))
+      }
 
-    return () => window.clearTimeout(timer)
-  }, [doc, editor, stored, synced])
+      setReady(true)
+    }
 
-  return editor
+    void seedThenConnect()
+
+    return () => {
+      cancelled = true
+      setReady(false)
+      // Only meaningful if `seedThenConnect` reached it before this ran; `YjsEditor`
+      // itself guards a disconnect of an editor that was never connected, and a
+      // reconnect on the next run is exactly what an editor that outlives one `stored`
+      // value needs -- this is not a special case, just the ordinary teardown before it.
+      if (YjsEditor.connected(asYjsEditor(editor))) YjsEditor.disconnect(asYjsEditor(editor))
+    }
+  }, [doc, editor, nodeId, stored, synced])
+
+  return { editor, ready }
 }
