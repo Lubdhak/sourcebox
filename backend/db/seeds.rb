@@ -34,15 +34,15 @@ end
 
 SEED_USERS = [
   {
-    email: "ada@sourcebox.dev",
-    name: "Ada Lovelace",
+    email: "lipcy@sourcebox.dev",
+    name: "Sayanti",
     provider: "google_oauth2",
     uid: "seed-uid-ada-0001",
     avatar_url: "https://i.pravatar.cc/200?u=ada@sourcebox.dev",
   },
   {
-    email: "grace@sourcebox.dev",
-    name: "Grace Hopper",
+    email: "lubi@sourcebox.dev",
+    name: "Lubdhak",
     provider: "google_oauth2",
     uid: "seed-uid-grace-0002",
     avatar_url: "https://i.pravatar.cc/200?u=grace@sourcebox.dev",
@@ -50,8 +50,8 @@ SEED_USERS = [
   {
     # The account to reach for when demoing. Password sign-in, so it works without Google
     # OAuth credentials configured.
-    email: "lubi@gmail.com",
-    name: "Lubi",
+    email: "test@gmail.com",
+    name: "Test",
     provider: nil,
     uid: nil,
     avatar_url: nil,
