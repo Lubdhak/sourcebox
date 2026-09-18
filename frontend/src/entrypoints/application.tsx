@@ -5,6 +5,13 @@ import { writeCsrfToken } from '@/lib/csrf'
 import { logger, reportNavigationTiming } from '@/lib/logger'
 import '@/styles/application.css'
 
+// Apply the user's explicit choice before React mounts, avoiding a light flash on a
+// dark page. The Sourcebox cube in the navigation rail updates this value.
+const savedTheme = window.localStorage.getItem('sourcebox:theme')
+if (savedTheme === 'dark' || savedTheme === 'light') {
+  document.documentElement.classList.toggle('dark', savedTheme === 'dark')
+}
+
 /**
  * Frontend entrypoint.
  *

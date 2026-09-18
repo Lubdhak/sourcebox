@@ -201,7 +201,7 @@ export const NodeCard = memo(function NodeCard({
     <div
       ref={card}
       className={cn(
-        'group/card relative w-60 rounded-sm border bg-card text-card-foreground transition-shadow',
+        'group/card relative w-60 rounded-sm border bg-card text-card-foreground transition-[box-shadow,filter]',
         /*
           Greyed rather than badged alone, because the point is to be legible without
           being read. A space's unreachable nodes are worth seeing as a pattern -- a
@@ -215,10 +215,23 @@ export const NodeCard = memo(function NodeCard({
         // Offset from the card rather than on it, so it reads as something pointing at
         // the card. It survives a selection on the same card for the same reason: the two
         // are different facts, and after clicking a card both are true of it.
-        cursor ? 'ring-2 ring-ring ring-offset-2 ring-offset-background' : '',
+        cursor ? 'ring-2 ring-focus ring-offset-2 ring-offset-background' : '',
         linking ? 'border-dashed border-brand-400' : '',
         dropTarget ? 'border-brand-500 ring-2 ring-brand-400 ring-offset-1' : '',
         elevated ? 'shadow-md' : 'shadow-xs',
+        /*
+          The halo, as a filter rather than another box-shadow: the line above uses the
+          shadow for height off the level, and a second value in the same property would
+          have to choose between saying "this one is in focus" and "this one is raised".
+          A `drop-shadow` hugs what is already drawn -- card, border and ring -- so the
+          glow is the ring's own colour bleeding outwards, which is what makes a card look
+          lit rather than outlined twice.
+        */
+        cursor ? 'drop-shadow-[0_0_10px_var(--color-focus-glow)]' : '',
+        // A selected card glows in the brand hue instead, matching its own ring: it is
+        // the node the panel is describing, which is a different fact from where the keys
+        // are, and the two are told apart by colour when both land on the same card.
+        selected && !cursor ? 'drop-shadow-[0_0_10px_var(--color-brand-glow)]' : '',
       )}
     >
       {/*

@@ -21,6 +21,9 @@
   --color-brand-500: oklch(0.58 0.16 250);
   --color-brand-600: oklch(0.51 0.16 250);
   --color-brand-700: oklch(0.44 0.14 250);
+  /* The halo a selected card is drawn with -- the brand hue at the alpha a glow needs to
+     read as light coming off the card rather than as a second border. */
+  --color-brand-glow: oklch(0.58 0.16 250 / 35%);
 
   --font-sans: "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -497,6 +500,20 @@
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
+  /*
+   * The keyboard cursor on the canvas, and the glow that goes with it.
+   *
+   * Its own token rather than `--ring` because the two answer different questions: --ring
+   * is the neutral "this control has the focus" used all over the forms, and this is "the
+   * arrow keys are here", which has to be findable at a glance on a canvas of identical
+   * cards. Grey was neither, on either background.
+   *
+   * Defined per theme below -- violet on the white canvas, green on the dark one -- and
+   * resolved at the element, so `ring-focus` is one utility with two colours and no
+   * `dark:` variant at the call site.
+   */
+  --color-focus: var(--focus);
+  --color-focus-glow: var(--focus-glow);
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
@@ -542,6 +559,10 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  /* Violet: the canvas is white here, and the brand blue is already spoken for by the
+     selected card, so the cursor needs a hue of its own to stay one glance apart. */
+  --focus: oklch(0.52 0.22 295);
+  --focus-glow: oklch(0.52 0.22 295 / 35%);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -577,6 +598,10 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  /* Green on the dark canvas, the same signal the logo gives in this theme: a violet ring
+     on near-black reads as dim rather than as bright, and a glow has to look lit. */
+  --focus: oklch(0.82 0.18 155);
+  --focus-glow: oklch(0.82 0.18 155 / 40%);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

@@ -1,6 +1,7 @@
 import { Link, useHttp, usePage } from '@inertiajs/react'
 import { cn } from 'cn'
-import { Box, Keyboard, LayoutDashboard, LogOut, Network } from 'lucide-react'
+import { Box, Keyboard, LogOut, Network } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import {
   Sidebar,
   SidebarContent,
@@ -33,16 +34,31 @@ export function AppSidebar({ role, shortcuts }: { role?: SpaceRole; shortcuts?: 
   const page = usePage<InertiaSharedProps>()
   const { currentUser } = page.props
   const { processing, submit } = useHttp('delete', '/users/sign_out', {})
-  const onDashboard = page.url.startsWith('/dashboard')
   const onSpaces = page.url.startsWith('/spaces')
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    window.localStorage.setItem('sourcebox:theme', dark ? 'dark' : 'light')
+  }, [dark])
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton render={<Link href="/dashboard" />} tooltip="Sourcebox">
-              <Box />
+            <SidebarMenuButton
+              tooltip={dark ? 'Use light mode' : 'Use dark mode'}
+              aria-label={dark ? 'Use light mode' : 'Use dark mode'}
+              aria-pressed={dark}
+              onClick={() => setDark((current) => !current)}
+            >
+              <Box
+                className={cn(
+                  'transition-[color,filter] duration-200',
+                  dark && 'text-emerald-400 drop-shadow-[0_0_6px_rgba(74,222,128,0.95)]',
+                )}
+              />
               <span>Sourcebox</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -54,16 +70,6 @@ export function AppSidebar({ role, shortcuts }: { role?: SpaceRole; shortcuts?: 
           <SidebarGroupLabel>Application</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link href="/dashboard" />}
-                  isActive={onDashboard}
-                  tooltip="Dashboard"
-                >
-                  <LayoutDashboard />
-                  <span>Dashboard</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   render={<Link href="/spaces" />}
