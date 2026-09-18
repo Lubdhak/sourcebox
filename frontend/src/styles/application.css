@@ -262,12 +262,79 @@
       top: 0.25em;
     }
 
+    /* In the editor the same corner holds a control instead of a label, because there the
+       language is a thing you change rather than a thing you read. The label is dropped
+       when one is present so the corner does not say it twice. */
+    &:has(> .code-language)::after {
+      content: none;
+    }
+
+    .code-language {
+      position: absolute;
+      right: 0.35em;
+      top: 0.2em;
+      user-select: none;
+
+      > select {
+        appearance: none;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: calc(var(--radius) * 0.4);
+        color: var(--muted-foreground);
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: 0.7rem;
+        padding: 0.05em 0.25em;
+
+        /* Quiet until it is wanted: a menu in every snippet, drawn as a menu, would make
+           a page of examples look like a page of forms. */
+        &:hover,
+        &:focus-visible {
+          background: var(--background);
+          border-color: var(--border);
+          color: var(--foreground);
+        }
+      }
+    }
+
     > code {
       background: none;
       flex: 1;
       padding: 0;
       padding-inline-end: 0.875em;
       white-space: pre;
+    }
+
+    /*
+     * The same block in the editor, where the snippet is a list of lines rather than one
+     * run of text -- so the numbers come from a counter instead of from the gutter
+     * element the reader's page uses.
+     *
+     * Which is strictly better here: a number drawn by CSS cannot be selected, cannot be
+     * copied with the code, and cannot be saved into the document. The old gutter was
+     * real text in the DOM, and keeping it out of the saved Markdown took a rule in the
+     * serializer.
+     */
+    > code:has(.code-line) {
+      counter-reset: code-line;
+      padding-inline-start: 3.25em;
+    }
+
+    .code-line {
+      counter-increment: code-line;
+      display: block;
+      position: relative;
+
+      &::before {
+        color: var(--muted-foreground);
+        content: counter(code-line);
+        left: -2.5em;
+        opacity: 0.7;
+        position: absolute;
+        text-align: end;
+        user-select: none;
+        width: 2em;
+      }
     }
   }
 

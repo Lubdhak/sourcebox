@@ -1,4 +1,5 @@
 import hljs from 'highlight.js/lib/core'
+import { createLowlight } from 'lowlight'
 import bash from 'highlight.js/lib/languages/bash'
 import c from 'highlight.js/lib/languages/c'
 import cpp from 'highlight.js/lib/languages/cpp'
@@ -98,11 +99,44 @@ for (const grammar of GRAMMARS) {
   for (const alias of grammar.aliases ?? []) hljs.registerAliases(alias, { languageName: grammar.id })
 }
 
-/** Offered by the editor when inserting a code block. */
+/**
+ * The same grammars again, for the editor.
+ *
+ * The reader's page is highlighted by Highlight.js directly, producing HTML; the editor is
+ * highlighted by lowlight, which is Highlight.js emitting a tree instead -- because the
+ * editor decorates its own text rather than replacing it with markup. One list of grammars
+ * feeds both, so a snippet cannot be coloured on the page and plain in the editor, and the
+ * token classes are the same `hljs-*` names either way, so one stylesheet colours both.
+ */
+export const lowlight = createLowlight(
+  Object.fromEntries(GRAMMARS.map((grammar) => [grammar.id, grammar.register])),
+)
+
+lowlight.registerAlias(
+  Object.fromEntries(
+    GRAMMARS.filter((grammar) => grammar.aliases?.length).map((grammar) => [
+      grammar.id,
+      grammar.aliases ?? [],
+    ]),
+  ),
+)
+
+/** Offered by the picker in the corner of a code block. */
 export const CODE_LANGUAGES: { id: string; label: string }[] = GRAMMARS.map(({ id, label }) => ({
   id,
   label,
 }))
+
+/**
+ * What a new code block is, and what the picker shows for a fence that named nothing.
+ *
+ * A snippet gets a language without being asked for one. The question is a poor one to
+ * ask at insertion -- the author is thinking about the code, the answer is often "I will
+ * know once I have pasted it", and a modal in front of an empty block is a modal for a
+ * decision that can be changed later for free. So the block arrives with a default and
+ * carries its own control for changing it.
+ */
+export const DEFAULT_CODE_LANGUAGE = 'json'
 
 /**
  * The grammar a fence's language names, or null.
@@ -137,13 +171,15 @@ export function languageLabel(language: string | null): string {
  * matter: this text is written by one user and read by others.
  */
 export function codeBlockHtml(code: string, language: string | null): string {
-  const body = code.replace(/\n$/, '')
-  const lines = body.split('\n')
+  // Rendered exactly as given, trailing newline included. It is the caller that knows
+  // whether a final empty line is noise from a parser or the line the author just made
+  // with the Enter key and is about to type on.
+  const lines = code.split('\n')
 
   const numbers = lines.map((_, index) => index + 1).join('\n')
   const highlighted = language
-    ? hljs.highlight(body, { language, ignoreIllegals: true }).value
-    : escapeHtml(body)
+    ? hljs.highlight(code, { language, ignoreIllegals: true }).value
+    : escapeHtml(code)
 
   return (
     // `contenteditable="false"` because this markup is also what the editor shows: the

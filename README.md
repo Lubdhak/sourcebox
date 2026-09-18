@@ -22,3 +22,30 @@ Things you may want to cover:
 * Deployment instructions
 
 * ...
+
+Features
+
+- add capacity for owner & admin to give user access to view only specific node all its downstream nodes only.
+
+- LLM based data insertion
+
+- Improve for both user & agent
+
+- Remove Depth
+
+- add provison for filling data / search programicatlly
+
+- add vector search & RAG support
+
+- add / validate node operations 
+
+- calender view to insert date
+
+- Automatic URL/link detection
+
+- Draft & Publish
+
+- Image Support
+
+- Node added & updated by
+

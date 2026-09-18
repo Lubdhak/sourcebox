@@ -5,7 +5,7 @@ import {
   pageText,
   type CollaborativeDocument,
 } from '@/features/documentation/collaboration/useCollaborativeDocument'
-import type { TextEdit } from '@/features/documentation/inspector/markdownCommands'
+import type { TextEdit } from '@/features/documentation/editor/sourceCommands'
 import { blocksToMarkdown, isSingleMarkdownPage } from '@/features/documentation/inspector/pageMarkdown'
 import { diffEdit } from '@/features/documentation/inspector/textDiff'
 import { SESSION_ID } from '@/lib/cable'

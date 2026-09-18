@@ -56,6 +56,16 @@ describe('codeBlockHtml', () => {
     expect(code.querySelector('[class^="hljs-"]')).toBeNull()
   })
 
+  it('keeps a trailing newline, which is the line Enter just made', () => {
+    // The editor paints a block from its own text on every keystroke, so a final empty
+    // line has to be rendered and numbered or pressing Enter at the end of a snippet does
+    // nothing at all. Dropping it where it is noise is the renderer's business.
+    const block = element(codeBlockHtml('one\n', 'plaintext'))
+
+    expect(block.querySelector('code')?.textContent).toBe('one\n')
+    expect(block.querySelector('.code-gutter')?.textContent).toBe('1\n2')
+  })
+
   it('displays a snippet containing markup rather than running it', () => {
     for (const language of ['xml', null]) {
       const block = element(codeBlockHtml('<script>alert(1)</script>', language))

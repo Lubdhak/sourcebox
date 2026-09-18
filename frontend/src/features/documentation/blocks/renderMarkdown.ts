@@ -35,9 +35,13 @@ const markdown = new Marked({ async: false, gfm: true, breaks: true }).use({
       // The language is kept on the element as well as in the class because the page
       // shows it: a snippet whose language is not labelled is a snippet somebody has to
       // guess at.
+      //
+      // The trailing newline a fence leaves behind is dropped here rather than in the
+      // markup, which renders what it is given: a blank final line is noise from the
+      // parser here and is the line somebody just made with Enter in the editor.
       return (
         `<pre class="code-block"${language ? ` data-language="${language}"` : ''}>` +
-        `${codeBlockHtml(text, language)}</pre>`
+        `${codeBlockHtml(text.replace(/\n+$/, ''), language)}</pre>`
       )
     },
   },

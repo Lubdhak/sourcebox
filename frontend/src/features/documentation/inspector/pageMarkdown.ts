@@ -146,8 +146,10 @@ function fence(body: string, language: string): string {
 function cell(value: unknown): string {
   const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value)
 
-  // A literal pipe would split the cell, and a newline would end the row.
-  return text.replace(/\|/g, '\\|').replace(/\n+/g, ' ')
+  // A literal pipe would split the cell, and a newline would end the row -- so the one
+  // becomes escaped and the other becomes the only line break a cell can hold, which is
+  // the same answer the editor's serializer gives a cell somebody typed two lines into.
+  return text.replace(/\|/g, '\\|').replace(/\n+/g, '<br>')
 }
 
 function string(value: unknown): string {

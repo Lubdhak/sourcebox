@@ -1,4 +1,4 @@
-import type { TextEdit } from '@/features/documentation/inspector/markdownCommands'
+import type { TextEdit } from '@/features/documentation/editor/sourceCommands'
 
 /**
  * The smallest edit that turns one string into another.
