@@ -13,9 +13,7 @@ module Types
           description: <<~DESC
             What kind of thing this node represents, for example `service` or `table`.
 
-            A free-form string rather than an enum: the set of things a team might
-            document is open-ended, and adding one must not require a schema change.
-            `Node::SUGGESTED_TYPES` is the vocabulary the UI offers.
+            A free-form string: the set of things a team might document is open-ended.
           DESC
     field :title, String
     field :summary, String, null: true
@@ -28,15 +26,6 @@ module Types
 
     field :metadata, GraphQL::Types::JSON,
           description: "Open-ended per-node annotation: owning team, status, external ids, renderer hints."
-
-    # Both the id and the object. The canvas colours and filters by layer and already
-    # holds every layer in the space, so making it resolve a Layer per node would be a
-    # join it does not need; the inspector wants the name and reads `layer`.
-    field :layer_id, ID, null: true,
-          description: "Id of the conceptual layer this node sits on, if any."
-
-    field :layer, Types::LayerType, null: true,
-          description: "The conceptual layer this node sits on, if any."
 
     # Plain lists rather than connections, which is a deliberate exception to the rule
     # stated in Schema.
@@ -103,22 +92,13 @@ module Types
     end
 
     # `position` and `size` read their fields straight off the node, so the node is its
-    # own `object` for both. This keeps them typed sub-selections without allocating a
-    # wrapper per node -- the same trick DashboardType#ui_state uses.
+    # own `object` for both.
     def position
       object
     end
 
     def size
       object
-    end
-
-    def layer_id
-      object.layer_id&.to_s
-    end
-
-    def layer
-      load_record(Layer, object.layer_id)
     end
 
     # All three of these are batched. Without the loaders, selecting content and edges for

@@ -2,16 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InspectorPanel } from '@/features/documentation/inspector/InspectorPanel'
-import type { ContentBlock, Layer } from '@/types'
+import type { ContentBlock } from '@/types'
 
-/**
- * The panel's collaborative document, minus the socket.
- *
- * The page is always co-edited now -- there is no draft mode left to test in -- so the
- * hook is replaced by one that hands out a fresh, already-synchronised document per node.
- * That is the whole of what a connection provides to this component, and it keeps these
- * cases from opening a WebSocket to nothing.
- */
 vi.mock('@/features/documentation/collaboration/useCollaborativeDocument', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/documentation/collaboration/useCollaborativeDocument')>()
   const { useMemo } = await import('react')
@@ -41,11 +33,6 @@ const api = await import('@/features/documentation/graphql')
 
 type NodeDetail = import('@/features/documentation/graphql').NodeDetail
 
-const LAYERS: Layer[] = [
-  { id: '1', index: 0, name: 'System', description: null, nodeCount: 1 },
-  { id: '2', index: 1, name: 'Services', description: null, nodeCount: 4 },
-]
-
 const MARKDOWN_BLOCK: ContentBlock = {
   id: '10',
   blockType: 'MARKDOWN',
@@ -69,8 +56,6 @@ function detail(overrides: Partial<NodeDetail> = {}): NodeDetail {
     position: { x: 120.4, y: -60.8, z: 1 },
     size: { width: 240, height: 120, depth: 0 },
     metadata: {},
-    layerId: '2',
-    layer: LAYERS[1] ?? null,
     contentBlocks: [MARKDOWN_BLOCK],
     outgoingRelationships: [
       {
@@ -109,7 +94,6 @@ function renderPanel(props: Partial<Parameters<typeof InspectorPanel>[0]> = {}) 
     <InspectorPanel
       nodeId="7"
       spaceId="space-1"
-      layers={LAYERS}
       {...handlers}
       {...props}
     />,
@@ -132,7 +116,6 @@ describe('InspectorPanel', () => {
     expect(await screen.findByRole('heading', { name: 'Payment Service' })).toBeDefined()
     expect(screen.getByText('Card capture and refunds.')).toBeDefined()
     expect(screen.getByRole('button', { name: 'Type' }).textContent).toContain('service')
-    expect(screen.getByRole('button', { name: 'Depth' }).textContent).toContain('1 · Services')
 
     // Rendered, not shown as source.
     expect(screen.getByText('capture').tagName).toBe('STRONG')
@@ -165,22 +148,6 @@ describe('InspectorPanel', () => {
     // The canvas card draws the title, so it has to be told the title changed.
     expect(onNodeChanged).toHaveBeenCalled()
     expect(await screen.findByRole('heading', { name: 'Billing Service' })).toBeDefined()
-  })
-
-  it('changes depth from the dropdown, and clearing it sends an explicit null', async () => {
-    const user = userEvent.setup()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- narrow test double
-    vi.mocked(api.updateNode).mockResolvedValue(detail({ layerId: null, layer: null }) as any)
-
-    renderPanel()
-
-    await user.click(await screen.findByRole('button', { name: 'Depth' }))
-    await user.click(within(screen.getByRole('listbox', { name: 'Depth' })).getByRole('option', { name: 'No depth' }))
-
-    // Omitting the key would mean "unchanged", which is a different statement.
-    await waitFor(() =>
-      expect(api.updateNode).toHaveBeenCalledWith(expect.objectContaining({ layerId: null })),
-    )
   })
 
   it('opens the editor from the Edit button only, and saves the page as one document', async () => {

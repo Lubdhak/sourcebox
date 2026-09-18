@@ -28,7 +28,7 @@ import {
 import type { Peer } from '@/features/documentation/collaboration/useSpaceChannel'
 import { readingOrder } from '@/features/documentation/readingOrder'
 import { collaboratorColor } from '@/features/documentation/collaboration/colors'
-import type { DocumentationNode, Layer, NodeParent, NodeRelationship, SpatialPosition } from '@/types'
+import type { DocumentationNode, NodeParent, NodeRelationship, SpatialPosition } from '@/types'
 
 import '@xyflow/react/dist/style.css'
 
@@ -146,7 +146,6 @@ export interface SpatialCanvasProps {
    * far ends of edges that leave this level, not part of what it holds.
    */
   neighbors?: DocumentationNode[]
-  layers: Layer[]
   selectedNodeId: string | null
   /**
    * The node whose contents are on screen, or null at the top of the space.
@@ -202,7 +201,6 @@ export function SpatialCanvas({
   nodes,
   relationships,
   neighbors = NO_NODES,
-  layers,
   selectedNodeId,
   focusNodeId = null,
   focusKey,
@@ -224,8 +222,6 @@ export function SpatialCanvas({
   onGoUp,
   onPointerPosition,
 }: SpatialCanvasProps) {
-  const layerNames = useMemo(() => new Map(layers.map((layer) => [layer.id, layer.name])), [layers])
-  const layerDepths = useMemo(() => new Map(layers.map((layer) => [layer.id, layer.index])), [layers])
   const instance = useRef<ReactFlowInstance<CanvasNode, Edge> | null>(null)
 
   /**
@@ -282,31 +278,12 @@ export function SpatialCanvas({
   const dropRef = useRef<DropTarget | null>(null)
 
   /**
-   * How deep the level on screen is, as a layer index.
-   *
-   * The shallowest layer present, which for an ordinary level is the only one: the
-   * canvas is scoped to one node's contents and those are provisioned onto one rung.
-   * It exists to give the ghosts a reference point -- "higher up" is only meaningful
-   * relative to something.
+   * Without layer depths, all neighbors are "related but off-level" — we do not know
+   * if they are above or below, so we use a neutral tone.
    */
-  const viewDepth = useMemo(() => {
-    const depths = nodes
-      .map((node) => (node.layerId ? layerDepths.get(node.layerId) : undefined))
-      .filter((depth): depth is number => depth !== undefined)
-
-    return depths.length > 0 ? Math.min(...depths) : null
-  }, [layerDepths, nodes])
-
   const toneFor = useCallback(
-    (node: DocumentationNode): NeighborTone => {
-      const depth = node.layerId ? layerDepths.get(node.layerId) : undefined
-      if (depth === undefined || viewDepth === null) return 'unknown'
-      if (depth < viewDepth) return 'above'
-      if (depth > viewDepth) return 'below'
-
-      return 'alongside'
-    },
-    [layerDepths, viewDepth],
+    (_node: DocumentationNode): NeighborTone => 'unknown',
+    [],
   )
 
   // Which verbs tie each off-level node to this one, so a ghost can say why it is there
@@ -342,7 +319,6 @@ export function SpatialCanvas({
         selected: node.id === selectedNodeId,
         data: {
           node,
-          layerName: node.layerId ? layerNames.get(node.layerId) ?? null : null,
           blockCount: blockCounts?.[node.id] ?? null,
           actions,
           linking: linkingFrom !== null && linkingFrom !== node.id,
@@ -380,7 +356,6 @@ export function SpatialCanvas({
           connectable: false,
           data: {
             node,
-            layerName: node.layerId ? layerNames.get(node.layerId) ?? null : null,
             tone: toneFor(node),
             verbs: verbsByNeighbor.get(node.id) ?? [],
             onOpen: onOpenNeighbor,
@@ -394,7 +369,6 @@ export function SpatialCanvas({
       drop,
       editable,
       editorsByNode,
-      layerNames,
       linkingFrom,
       neighbors,
       onOpenNeighbor,

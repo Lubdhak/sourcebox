@@ -6,7 +6,6 @@ import type {
   DeletionImpact,
   DocumentationNode,
   DocumentationSpace,
-  Layer,
   NodeRelationship,
   SearchResult,
   SpaceGraph,
@@ -33,7 +32,6 @@ const NODE_FIELDS = /* GraphQL */ `
     nodeType
     title
     summary
-    layerId
     position {
       x
       y
@@ -76,21 +74,14 @@ const BLOCK_FIELDS = /* GraphQL */ `
 export const SPACE_GRAPH_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   ${RELATIONSHIP_FIELDS}
-  query SpaceGraph($id: ID!, $layerId: ID, $limit: Int, $focusNodeId: ID) {
+  query SpaceGraph($id: ID!, $limit: Int, $focusNodeId: ID) {
     documentationSpace(id: $id) {
       id
       name
       slug
       description
       settings
-      layers {
-        id
-        index
-        name
-        description
-        nodeCount
-      }
-      graph(layerId: $layerId, limit: $limit, focusNodeId: $focusNodeId) {
+      graph(limit: $limit, focusNodeId: $focusNodeId) {
         nodeCount
         relationshipCount
         truncated
@@ -128,11 +119,6 @@ export const NODE_DETAIL_QUERY = /* GraphQL */ `
   query NodeDetail($id: ID!) {
     node(id: $id) {
       ...NodeFields
-      layer {
-        id
-        name
-        index
-      }
       contentBlocks {
         ...BlockFields
       }
@@ -171,7 +157,6 @@ export const SEARCH_QUERY = /* GraphQL */ `
         id
         title
         nodeType
-        layerId
       }
     }
   }
@@ -197,7 +182,6 @@ export const CREATE_NODE_MUTATION = /* GraphQL */ `
     $nodeType: String
     $x: Float
     $y: Float
-    $layerId: ID
     $parentNodeId: ID
   ) {
     createNode(
@@ -207,7 +191,6 @@ export const CREATE_NODE_MUTATION = /* GraphQL */ `
         nodeType: $nodeType
         x: $x
         y: $y
-        layerId: $layerId
         parentNodeId: $parentNodeId
       }
     ) {
@@ -220,9 +203,9 @@ export const CREATE_NODE_MUTATION = /* GraphQL */ `
 
 export const UPDATE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
-  mutation UpdateNode($nodeId: ID!, $title: String, $nodeType: String, $summary: String, $layerId: ID) {
+  mutation UpdateNode($nodeId: ID!, $title: String, $nodeType: String, $summary: String) {
     updateNode(
-      input: { nodeId: $nodeId, title: $title, nodeType: $nodeType, summary: $summary, layerId: $layerId }
+      input: { nodeId: $nodeId, title: $title, nodeType: $nodeType, summary: $summary }
     ) {
       node {
         ...NodeFields
@@ -320,78 +303,16 @@ export const DELETE_BLOCK_MUTATION = /* GraphQL */ `
   }
 `
 
-/**
- * Layer mutations return the whole ladder rather than the one rung that changed.
- *
- * Inserting or removing a depth re-indexes every rung below it, so merging a single
- * layer locally would leave the rest showing stale depths -- and depth is what the
- * drill-down navigates by.
- */
-const LAYER_FIELDS = /* GraphQL */ `
-  fragment LayerFields on Layer {
-    id
-    index
-    name
-    description
-    nodeCount
-  }
-`
-
-export const CREATE_LAYER_MUTATION = /* GraphQL */ `
-  ${LAYER_FIELDS}
-  mutation CreateLayer($spaceId: ID!, $name: String, $index: Int) {
-    createLayer(input: { spaceId: $spaceId, name: $name, index: $index }) {
-      layers {
-        ...LayerFields
-      }
-    }
-  }
-`
-
-export const UPDATE_LAYER_MUTATION = /* GraphQL */ `
-  ${LAYER_FIELDS}
-  mutation UpdateLayer($layerId: ID!, $name: String, $description: String) {
-    updateLayer(input: { layerId: $layerId, name: $name, description: $description }) {
-      layer {
-        ...LayerFields
-      }
-    }
-  }
-`
-
-export const DELETE_LAYER_MUTATION = /* GraphQL */ `
-  ${LAYER_FIELDS}
-  mutation DeleteLayer($layerId: ID!) {
-    deleteLayer(input: { layerId: $layerId }) {
-      deletedLayerId
-      layers {
-        ...LayerFields
-      }
-    }
-  }
-`
-
-export const REORDER_LAYERS_MUTATION = /* GraphQL */ `
-  ${LAYER_FIELDS}
-  mutation ReorderLayers($spaceId: ID!, $orderedLayerIds: [ID!]!) {
-    reorderLayers(input: { spaceId: $spaceId, orderedLayerIds: $orderedLayerIds }) {
-      layers {
-        ...LayerFields
-      }
-    }
-  }
-`
-
 /* --- Typed callers ------------------------------------------------------- */
 
 interface RequestOptions {
   signal?: AbortSignal
 }
 
-export type SpaceWithGraph = DocumentationSpace & { layers: Layer[]; graph: SpaceGraph }
+export type SpaceWithGraph = DocumentationSpace & { graph: SpaceGraph }
 
 export async function fetchSpaceGraph(
-  variables: { id: string; layerId?: string | null; limit?: number; focusNodeId?: string | null },
+  variables: { id: string; limit?: number; focusNodeId?: string | null },
   options: RequestOptions = {},
 ): Promise<SpaceWithGraph> {
   const data = await graphql<{ documentationSpace: SpaceWithGraph }, typeof variables>(
@@ -404,7 +325,6 @@ export async function fetchSpaceGraph(
 }
 
 export type NodeDetail = DocumentationNode & {
-  layer: Pick<Layer, 'id' | 'name' | 'index'> | null
   contentBlocks: ContentBlock[]
   outgoingRelationships: NodeRelationship[]
   incomingRelationships: NodeRelationship[]
@@ -447,7 +367,6 @@ export async function createNode(variables: {
   nodeType?: string
   x?: number
   y?: number
-  layerId?: string | null
   parentNodeId?: string | null
 }): Promise<DocumentationNode> {
   const data = await graphql<{ createNode: { node: DocumentationNode | null } }, typeof variables>(
@@ -464,7 +383,6 @@ export async function updateNode(variables: {
   title?: string
   nodeType?: string
   summary?: string
-  layerId?: string | null
 }): Promise<DocumentationNode> {
   const data = await graphql<{ updateNode: { node: DocumentationNode | null } }, typeof variables>(
     UPDATE_NODE_MUTATION,
@@ -645,57 +563,6 @@ export async function deleteContentBlock(blockId: string): Promise<ContentBlock[
   >(DELETE_BLOCK_MUTATION, { blockId }, { operationName: 'DeleteContentBlock' })
 
   return data.deleteContentBlock.node!.contentBlocks
-}
-
-export async function createLayer(variables: {
-  spaceId: string
-  name?: string
-  index?: number
-}): Promise<Layer[]> {
-  const data = await graphql<{ createLayer: { layers: Layer[] | null } }, typeof variables>(
-    CREATE_LAYER_MUTATION,
-    variables,
-    { operationName: 'CreateLayer' },
-  )
-
-  return data.createLayer.layers!
-}
-
-export async function updateLayer(variables: {
-  layerId: string
-  name?: string
-  description?: string
-}): Promise<Layer> {
-  const data = await graphql<{ updateLayer: { layer: Layer | null } }, typeof variables>(
-    UPDATE_LAYER_MUTATION,
-    variables,
-    { operationName: 'UpdateLayer' },
-  )
-
-  return data.updateLayer.layer!
-}
-
-export async function deleteLayer(layerId: string): Promise<Layer[]> {
-  const data = await graphql<{ deleteLayer: { deletedLayerId: string | null; layers: Layer[] | null } }, { layerId: string }>(
-    DELETE_LAYER_MUTATION,
-    { layerId },
-    { operationName: 'DeleteLayer' },
-  )
-
-  return data.deleteLayer.layers!
-}
-
-export async function reorderLayers(variables: {
-  spaceId: string
-  orderedLayerIds: string[]
-}): Promise<Layer[]> {
-  const data = await graphql<{ reorderLayers: { layers: Layer[] | null } }, typeof variables>(
-    REORDER_LAYERS_MUTATION,
-    variables,
-    { operationName: 'ReorderLayers' },
-  )
-
-  return data.reorderLayers.layers!
 }
 
 /* --- Sharing and review -------------------------------------------------- */

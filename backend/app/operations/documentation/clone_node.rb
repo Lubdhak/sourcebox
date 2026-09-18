@@ -66,7 +66,6 @@ module Documentation
         title: root ? "#{original.title} copy" : original.title,
         node_type: original.node_type,
         summary: original.summary,
-        layer_id: original.layer_id,
         x: original.x + (root ? OFFSET : 0),
         y: original.y + (root ? OFFSET : 0),
         z: original.z,

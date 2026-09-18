@@ -4,7 +4,7 @@ import { readingOrder } from '@/features/documentation/readingOrder'
 import type { RealtimeEnvelope } from '@/lib/cable'
 import { GraphQLRequestError } from '@/lib/graphql'
 import { logger } from '@/lib/logger'
-import type { DocumentationNode, Layer, NodeRelationship, SpaceGraph, SpatialPosition } from '@/types'
+import type { DocumentationNode, NodeRelationship, SpaceGraph, SpatialPosition } from '@/types'
 
 /**
  * Owns the client's copy of one space's graph.
@@ -36,8 +36,6 @@ const REMOTE_REFRESH_DEBOUNCE_MS = 400
 interface UseGraphStateOptions {
   spaceId: string
   initialGraph: SpaceGraph
-  initialLayers: Layer[]
-  /** Restores a drill-down from the URL, so a refresh keeps the user where they were. */
   initialFocusNodeId?: string | null
 }
 
@@ -55,38 +53,18 @@ export interface FocusOptions {
 export interface GraphStateApi {
   nodes: DocumentationNode[]
   relationships: NodeRelationship[]
-  /**
-   * Nodes on other levels that something on this one connects to.
-   *
-   * Context rather than content: the canvas draws them faintly and clicking one leaves
-   * this level for theirs. Kept separate from `nodes` throughout, because anything that
-   * treated them as contents -- a layer count, a selection, a drag -- would be wrong.
-   */
   neighbors: DocumentationNode[]
-  layers: Layer[]
   nodeCount: number
   relationshipCount: number
   truncated: boolean
-
-  layerFilter: string | null
-  setLayerFilter: (layerId: string | null) => void
 
   /** The node the canvas is inside, or null at the top of the space. */
   focusNode: DocumentationNode | null
   focusNodeId: string | null
   /** Containment path down to `focusNode`, outermost first. */
   trail: DocumentationNode[]
-  /** Descend into a node: the canvas redraws with what it contains. */
   dive: (nodeId: string, options?: FocusOptions) => Promise<void>
-  /** Back up one level, to wherever the current focus lives. */
   ascend: (options?: FocusOptions) => Promise<void>
-  /**
-   * Jump to any level, including `null` for the top of the space. The breadcrumb uses it.
-   *
-   * `selectOnArrival` is a node id to select once there, or `'first'` for whichever card
-   * reads first on that level. A named node that has since moved or gone falls back to
-   * the first one.
-   */
   focusOn: (nodeId: string | null, selectOnArrival?: 'first' | string) => Promise<void>
 
   selectedNodeId: string | null
@@ -101,31 +79,16 @@ export interface GraphStateApi {
     nodeType?: string
     x: number
     y: number
-    layerId?: string | null
     parentNodeId?: string | null
   }) => Promise<DocumentationNode | null>
   moveNode: (nodeId: string, position: SpatialPosition) => void
-  /** Retitles a node from the canvas, without going through the inspector. */
   renameNode: (nodeId: string, title: string) => Promise<void>
   connectNodes: (sourceNodeId: string, targetNodeId: string, relationshipType: string) => Promise<void>
-  /**
-   * Files a node inside another one, or out to an ancestor.
-   *
-   * `fromParentNodeId` is the containment being left, which is the level the gesture
-   * happened on. Passing nothing adds a parent without removing one, which is how a node
-   * comes to live in two places.
-   */
   reparentNode: (nodeId: string, newParentNodeId: string | null, fromParentNodeId?: string | null) => Promise<void>
-  /** Copies a node, with or without everything inside it. Selects the copy. */
   cloneNode: (nodeId: string, includeChildren: boolean) => Promise<void>
   removeNode: (nodeId: string, cascade?: boolean) => Promise<void>
   removeRelationship: (relationshipId: string) => Promise<void>
-  /** Call after an edit made elsewhere (the inspector) changed a node the canvas draws. */
   refresh: () => Promise<void>
-
-  addLayer: (name?: string) => Promise<void>
-  renameLayer: (layerId: string, name: string) => Promise<void>
-  removeLayer: (layerId: string) => Promise<void>
 
   /** Merges one message from the space channel. Everything a collaborator does lands here. */
   applyRealtime: (message: RealtimeEnvelope) => void
@@ -134,12 +97,9 @@ export interface GraphStateApi {
 export function useGraphState({
   spaceId,
   initialGraph,
-  initialLayers,
   initialFocusNodeId = null,
 }: UseGraphStateOptions): GraphStateApi {
   const [graph, setGraph] = useState<SpaceGraph>(initialGraph)
-  const [layers, setLayers] = useState<Layer[]>(initialLayers)
-  const [layerFilter, setLayerFilterState] = useState<string | null>(null)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(initialFocusNodeId)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -173,45 +133,33 @@ export function useGraphState({
   }, [])
 
   const load = useCallback(
-    async (layerId: string | null, focus: string | null, signal?: AbortSignal) => {
+    async (focus: string | null, signal?: AbortSignal) => {
       const space = await api.fetchSpaceGraph(
-        { id: spaceId, layerId, limit: undefined, focusNodeId: focus },
+        { id: spaceId, limit: undefined, focusNodeId: focus },
         signal ? { signal } : {},
       )
 
       setGraph(space.graph)
-      setLayers(space.layers)
       confirmedGraph.current = space.graph
 
-      // The server decides whether a focus is still valid -- a node someone else deleted
-      // resolves to no focus rather than to an error -- so the client follows its answer
-      // instead of its own request.
       setFocusNodeId(space.graph.focusNode?.id ?? null)
 
-      // Returned as well as stored, because a caller that has just changed level needs to
-      // act on what arrived -- state is a render away, and by then the keyboard has moved
-      // on without it.
       return space.graph
     },
     [spaceId],
   )
 
-  // Refetch on mount. The Inertia props are a snapshot from when the page was rendered;
-  // another tab, or the same user ten minutes ago, may have moved things since.
   useEffect(() => {
     const controller = new AbortController()
 
-    load(null, initialFocusNodeId, controller.signal).catch((err: unknown) => {
+    load(initialFocusNodeId, controller.signal).catch((err: unknown) => {
       if (err instanceof DOMException && err.name === 'AbortError') return
-      // Non-fatal: the snapshot is already on screen, so the canvas stays usable.
       logger.warn('frontend.documentation_refetch_failed', {
         errorMessage: err instanceof Error ? err.message : String(err),
       })
     })
 
     return () => controller.abort()
-    // Mount only: `initialFocusNodeId` seeds the first load and every later focus change
-    // goes through `dive`/`ascend`, which fetch for themselves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load])
 
@@ -221,25 +169,11 @@ export function useGraphState({
     inFlightRefetch.current = controller
 
     try {
-      await load(layerFilter, focusNodeId, controller.signal)
+      await load(focusNodeId, controller.signal)
     } catch (err: unknown) {
       reportFailure(err, 'frontend.documentation_refresh_failed', 'Could not reload the graph.')
     }
-  }, [focusNodeId, layerFilter, load, reportFailure])
-
-  // Filtering happens on the server, not by hiding nodes locally: the point of layers is
-  // that a space may hold more nodes than the browser should ever receive.
-  const setLayerFilter = useCallback(
-    (layerId: string | null) => {
-      setLayerFilterState(layerId)
-      setSaving(true)
-
-      load(layerId, focusNodeId)
-        .catch((err: unknown) => reportFailure(err, 'frontend.documentation_layer_filter_failed', 'Could not filter by layer.'))
-        .finally(() => setSaving(false))
-    },
-    [focusNodeId, load, reportFailure],
-  )
+  }, [focusNodeId, load, reportFailure])
 
   /* --- Drill-down ------------------------------------------------------- */
 
@@ -259,18 +193,8 @@ export function useGraphState({
       setSelectedNodeId(null)
 
       try {
-        const arrived = await load(layerFilter, nodeId)
+        const arrived = await load(nodeId)
 
-        /*
-         * Landing with something selected, when the caller asks for it.
-         *
-         * This is what makes the canvas usable without a mouse. Changing level clears the
-         * selection -- the selected node is rarely on the level being arrived at -- and a
-         * keyboard user who pressed Enter would then have nothing to press Enter on next:
-         * no selection, and the card that held the focus gone from the document. So a
-         * keyboard arrival names what it wants selected, and a named node that is not
-         * here any more falls back to the first card rather than to nothing.
-         */
         if (selectOnArrival) {
           const cards = readingOrder(arrived.nodes)
           const wanted =
@@ -291,7 +215,7 @@ export function useGraphState({
         setSaving(false)
       }
     },
-    [layerFilter, load, reportFailure],
+    [load, reportFailure],
   )
 
   const dive = useCallback(
@@ -401,7 +325,6 @@ export function useGraphState({
           nodeType: attributes.nodeType,
           x: attributes.x,
           y: attributes.y,
-          layerId: attributes.layerId ?? null,
           parentNodeId: attributes.parentNodeId ?? null,
         })
 
@@ -604,61 +527,6 @@ export function useGraphState({
     [reportFailure],
   )
 
-  /* --- Layers ----------------------------------------------------------- */
-
-  const runLayerMutation = useCallback(
-    async (event: string, fallback: string, mutation: () => Promise<Layer[]>) => {
-      setSaving(true)
-
-      try {
-        setLayers(await mutation())
-      } catch (err: unknown) {
-        reportFailure(err, event, fallback)
-      } finally {
-        setSaving(false)
-      }
-    },
-    [reportFailure],
-  )
-
-  const addLayer = useCallback(
-    (name?: string) =>
-      runLayerMutation('frontend.documentation_create_layer_failed', 'Could not add that depth.', () =>
-        api.createLayer(name ? { spaceId, name } : { spaceId }),
-      ),
-    [runLayerMutation, spaceId],
-  )
-
-  const renameLayer = useCallback(
-    async (layerId: string, name: string) => {
-      setSaving(true)
-
-      try {
-        const layer = await api.updateLayer({ layerId, name })
-        setLayers((current) => current.map((existing) => (existing.id === layer.id ? layer : existing)))
-      } catch (err: unknown) {
-        reportFailure(err, 'frontend.documentation_rename_layer_failed', 'Could not rename that depth.')
-      } finally {
-        setSaving(false)
-      }
-    },
-    [reportFailure],
-  )
-
-  const removeLayer = useCallback(
-    async (layerId: string) => {
-      await runLayerMutation('frontend.documentation_delete_layer_failed', 'Could not remove that depth.', () =>
-        api.deleteLayer(layerId),
-      )
-
-      // The nodes that were on it are still there, unlayered, so a filter pointing at a
-      // layer that no longer exists would show an empty canvas rather than nothing wrong.
-      if (layerFilter === layerId) setLayerFilter(null)
-      else await refresh()
-    },
-    [layerFilter, refresh, runLayerMutation, setLayerFilter],
-  )
-
   /* --- Collaboration ---------------------------------------------------- */
 
   const remoteRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -713,8 +581,7 @@ export function useGraphState({
           return
         }
 
-        case 'documentation.node_updated':
-        case 'documentation.layer_changed': {
+        case 'documentation.node_updated': {
           const node = message.node as DocumentationNode | undefined
           if (!node) return
 
@@ -801,23 +668,12 @@ export function useGraphState({
         }
 
         case 'documentation.node_created':
-        // Both change which level a node belongs on, and only the server can say which.
         case 'documentation.node_reparented':
         case 'documentation.node_cloned':
           scheduleRemoteRefresh()
           return
 
-        case 'documentation.layer_created':
-        case 'documentation.layer_updated':
-        case 'documentation.layer_deleted': {
-          const incoming = message.layers as Layer[] | undefined
-          if (incoming) setLayers(incoming)
-          return
-        }
-
         default:
-          // Block-level changes are handled by the inspector, which is subscribed to the
-          // node itself. Ignoring them here keeps a keystroke from touching the canvas.
           break
       }
     },
@@ -832,12 +688,9 @@ export function useGraphState({
       nodes: graph.nodes,
       relationships: graph.relationships,
       neighbors: graph.neighbors ?? [],
-      layers,
       nodeCount: graph.nodeCount,
       relationshipCount: graph.relationshipCount,
       truncated: graph.truncated,
-      layerFilter,
-      setLayerFilter,
       focusNode: graph.focusNode ?? null,
       focusNodeId,
       trail: graph.trail ?? [],
@@ -858,13 +711,9 @@ export function useGraphState({
       removeNode,
       removeRelationship,
       refresh,
-      addLayer,
-      renameLayer,
-      removeLayer,
       applyRealtime,
     }),
     [
-      addLayer,
       addNode,
       applyRealtime,
       ascend,
@@ -875,21 +724,16 @@ export function useGraphState({
       focusNodeId,
       focusOn,
       graph,
-      layerFilter,
-      layers,
       moveNode,
       refresh,
-      removeLayer,
       removeNode,
       cloneNode,
       removeRelationship,
-      renameLayer,
       renameNode,
       reparentNode,
       saving,
       selectNode,
       selectedNodeId,
-      setLayerFilter,
     ],
   )
 }

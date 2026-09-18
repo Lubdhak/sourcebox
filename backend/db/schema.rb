@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_17_000007) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_18_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -85,17 +85,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_000007) do
     t.check_constraint "jsonb_typeof(settings) = 'object'::text", name: "documentation_spaces_settings_is_object"
   end
 
-  create_table "layers", force: :cascade do |t|
-    t.datetime "created_at", null: false
-    t.text "description"
-    t.bigint "documentation_space_id", null: false
-    t.integer "index", null: false
-    t.string "name", null: false
-    t.datetime "updated_at", null: false
-    t.index ["documentation_space_id", "index"], name: "index_layers_on_documentation_space_id_and_index", unique: true
-    t.index ["documentation_space_id"], name: "index_layers_on_documentation_space_id"
-  end
-
   create_table "node_relationships", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "documentation_space_id", null: false
@@ -116,7 +105,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_000007) do
     t.float "depth", default: 0.0, null: false
     t.bigint "documentation_space_id", null: false
     t.float "height", default: 120.0, null: false
-    t.bigint "layer_id"
     t.jsonb "metadata", default: {}, null: false
     t.string "node_type", default: "concept", null: false
     t.virtual "search_vector", type: :tsvector, as: "to_tsvector('english'::regconfig, (((COALESCE(title, ''::character varying))::text || ' '::text) || COALESCE(summary, ''::text)))", stored: true
@@ -127,9 +115,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_000007) do
     t.float "x", default: 0.0, null: false
     t.float "y", default: 0.0, null: false
     t.float "z", default: 0.0, null: false
-    t.index ["documentation_space_id", "layer_id"], name: "index_nodes_on_documentation_space_id_and_layer_id"
     t.index ["documentation_space_id", "x", "y"], name: "index_nodes_on_documentation_space_id_and_x_and_y"
-    t.index ["layer_id"], name: "index_nodes_on_layer_id"
     t.index ["search_vector"], name: "index_nodes_on_search_vector", using: :gin
     t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "nodes_metadata_is_object"
   end
@@ -148,7 +134,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_000007) do
     t.index ["documentation_space_id", "user_id"], name: "index_space_memberships_on_space_and_user", unique: true, where: "(user_id IS NOT NULL)"
     t.index ["user_id"], name: "index_space_memberships_on_user_id"
     t.check_constraint "(user_id IS NOT NULL) <> (invited_email IS NOT NULL)", name: "space_memberships_identifies_exactly_one_person"
-    t.check_constraint "role::text = ANY (ARRAY['viewer'::character varying, 'contributor'::character varying, 'editor'::character varying, 'admin'::character varying]::text[])", name: "space_memberships_role_is_known"
+    t.check_constraint "role::text = ANY (ARRAY['viewer'::character varying::text, 'contributor'::character varying::text, 'editor'::character varying::text, 'admin'::character varying::text])", name: "space_memberships_role_is_known"
   end
 
   create_table "users", force: :cascade do |t|
@@ -179,12 +165,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_000007) do
   add_foreign_key "crdt_updates", "users", column: "actor_id", on_delete: :nullify
   add_foreign_key "dashboards", "users"
   add_foreign_key "documentation_spaces", "users"
-  add_foreign_key "layers", "documentation_spaces"
   add_foreign_key "node_relationships", "documentation_spaces"
   add_foreign_key "node_relationships", "nodes", column: "source_node_id"
   add_foreign_key "node_relationships", "nodes", column: "target_node_id"
   add_foreign_key "nodes", "documentation_spaces"
-  add_foreign_key "nodes", "layers", on_delete: :nullify
   add_foreign_key "space_memberships", "documentation_spaces"
   add_foreign_key "space_memberships", "users"
   add_foreign_key "space_memberships", "users", column: "invited_by_id"

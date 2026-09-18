@@ -9,7 +9,7 @@ import { PageEditor, type MentionCandidate } from '@/features/documentation/insp
 import { useNodeDetail } from '@/features/documentation/inspector/useNodeDetail'
 import { usePageBody } from '@/features/documentation/inspector/usePageBody'
 import { cn } from '@/lib/utils'
-import type { DocumentationNode, Layer, NodeRelationship } from '@/types'
+import type { DocumentationNode, NodeRelationship } from '@/types'
 
 /**
  * A node, as a page.
@@ -42,8 +42,6 @@ import type { DocumentationNode, Layer, NodeRelationship } from '@/types'
  * never silently changed.
  */
 const NODE_TYPES = [
-  'concept',
-  'system',
   'service',
   'product',
   'feature',
@@ -64,7 +62,6 @@ const NODE_TYPES = [
 export function InspectorPanel({
   nodeId,
   spaceId,
-  layers,
   levelNodes = [],
   editable = true,
   back = null,
@@ -77,29 +74,14 @@ export function InspectorPanel({
 }: {
   nodeId: string
   spaceId: string
-  layers: Layer[]
-  /** The nodes on screen, offered first when mentioning: usually the one you meant. */
   levelNodes?: DocumentationNode[]
-  /** False for a viewer: the panel becomes a document rather than an editor. */
   editable?: boolean
-  /**
-   * The page one step back, when a link has been followed to get here.
-   *
-   * Null the rest of the time, which is what keeps a "back" control from appearing with
-   * nowhere to go.
-   */
   back?: { title: string; onBack: () => void } | null
   onClose: () => void
   onSelectNode: (nodeId: string) => void
   onDeleteNode: (nodeId: string) => void
   onDeleteRelationship: (relationshipId: string) => void
   onNodeChanged: () => void
-  /**
-   * The title of the page being shown, once it has loaded.
-   *
-   * The panel is where a node's title is known -- it fetched it -- and a trail of pages
-   * has to be able to name a node the canvas has since moved away from.
-   */
   onTitleLoaded?: (nodeId: string, title: string) => void
 }) {
   const { detail, loading, saving, error, dismissError, saveNodeFields, savePage } = useNodeDetail(
@@ -203,21 +185,6 @@ export function InspectorPanel({
               selected: type === detail.nodeType,
             }))}
             onPick={(type) => void saveNodeFields({ nodeType: type })}
-          />
-
-          <Menu
-            label="Depth"
-            value={detail.layer ? `${detail.layer.index} · ${detail.layer.name}` : 'No depth'}
-            disabled={!editable}
-            options={[
-              { id: '', label: 'No depth', selected: detail.layerId === null },
-              ...layers.map((layer) => ({
-                id: layer.id,
-                label: `${layer.index} · ${layer.name}`,
-                selected: layer.id === detail.layerId,
-              })),
-            ]}
-            onPick={(layerId) => void saveNodeFields({ layerId: layerId === '' ? null : layerId })}
           />
 
           {editable && !editing ? (

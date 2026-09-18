@@ -50,22 +50,6 @@ module Documentation
         space.space_memberships.includes(:user).order(:created_at).map { |record| membership(record) }
       end
 
-      def layer(layer, node_count: nil)
-        {
-          id: layer.id.to_s,
-          index: layer.index,
-          name: layer.name,
-          description: layer.description,
-          nodeCount: node_count || layer.nodes.size,
-        }
-      end
-
-      def layers(space)
-        counts = Node.where(documentation_space_id: space.id).group(:layer_id).count
-
-        space.layers.ordered.map { |record| layer(record, node_count: counts.fetch(record.id, 0)) }
-      end
-
       # `child_count` and `parent_id` are passed in rather than derived, because the caller
       # knows whether it is serializing one node or four hundred. See `child_counts` and
       # `parent_ids`.
@@ -78,11 +62,8 @@ module Documentation
           position: { x: node.x, y: node.y, z: node.z },
           size: { width: node.width, height: node.height, depth: node.depth },
           metadata: node.metadata,
-          layerId: node.layer_id&.to_s,
           childCount: child_count || 0,
           parentNodeId: parent_id&.to_s,
-          # Shallow on purpose: the card needs a name to show and somewhere to navigate
-          # to, not another graph hanging off every node.
           parents: Array(parents).map do |parent|
             { id: parent[:id].to_s, title: parent[:title], parentNodeId: parent[:parent_node_id]&.to_s }
           end,

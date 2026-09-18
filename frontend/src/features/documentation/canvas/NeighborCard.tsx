@@ -46,7 +46,7 @@ export function neighborStroke(tone: NeighborTone): string {
 
 export interface NeighborCardData extends Record<string, unknown> {
   node: DocumentationNode
-  layerName: string | null
+  layerName?: never  // removed — nodes no longer have a layer
   tone: NeighborTone
   /** The verbs that connect this node to the current level, deduped. */
   verbs: string[]
@@ -68,7 +68,7 @@ export interface NeighborCardData extends Record<string, unknown> {
  * persist and moving it would mean nothing.
  */
 export const NeighborCard = memo(function NeighborCard({ data }: { data: NeighborCardData }) {
-  const { node, layerName, tone, verbs, onOpen } = data
+  const { node, tone, verbs, onOpen } = data
   const palette = TONES[tone]
 
   return (
@@ -84,7 +84,7 @@ export const NeighborCard = memo(function NeighborCard({ data }: { data: Neighbo
           'nodrag flex w-44 flex-col gap-0.5 rounded-sm border border-dashed px-2 py-1.5 text-left opacity-80 transition-opacity hover:opacity-100 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none',
           palette.card,
         )}
-        title={`Go to ${node.title}${layerName ? ` on ${layerName}` : ''}`}
+        title={`Go to ${node.title}`}
       >
         <span className={cn('flex items-center gap-1 font-mono text-[9px] uppercase tracking-wide', palette.text)}>
           {palette.label}

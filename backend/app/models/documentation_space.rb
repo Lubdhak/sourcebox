@@ -12,7 +12,6 @@
 class DocumentationSpace < ApplicationRecord
   belongs_to :user
 
-  has_many :layers, dependent: :destroy
   has_many :nodes, dependent: :destroy
   has_many :node_relationships, dependent: :destroy
   has_many :space_memberships, dependent: :destroy

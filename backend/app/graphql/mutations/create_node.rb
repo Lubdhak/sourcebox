@@ -7,18 +7,11 @@ module Mutations
     argument :space_id, ID, description: "The space to add the node to."
     argument :title, String, description: "What the node is called."
     argument :node_type, String, required: false,
-             description: "What kind of thing it represents. Free-form; defaults to `concept`."
+             description: "What kind of thing it represents. Free-form; defaults to `service`."
     argument :summary, String, required: false, description: "One-line description."
     argument :x, Float, required: false, description: "Initial x coordinate."
     argument :y, Float, required: false, description: "Initial y coordinate."
     argument :z, Float, required: false, description: "Initial depth."
-    argument :layer_id, ID, required: false,
-             description: <<~DESC
-               The depth to place it on. Defaults to one rung below the parent's, or the
-               first rung for the root of the space, creating that rung if it is not there
-               yet. An explicit value always wins: containment and depth are related by
-               default, not welded together.
-             DESC
     argument :metadata, GraphQL::Types::JSON, required: false, description: "Open-ended annotation."
     argument :blocks, [ Types::ContentBlockInputType ], required: false,
              description: "Content blocks to create with the node, in order."
@@ -51,7 +44,6 @@ module Mutations
         x: attributes[:x] || 0.0,
         y: attributes[:y] || 0.0,
         z: attributes[:z] || 0.0,
-        layer_id: attributes[:layer_id],
         metadata: attributes[:metadata] || {},
         blocks: Array(attributes[:blocks]).map(&:to_h),
         parent_node_id: attributes[:parent_node_id],

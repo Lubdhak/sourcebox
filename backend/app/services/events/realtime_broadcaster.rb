@@ -34,14 +34,10 @@ module Events
       Names::DOCUMENTATION_NODE_DELETED,
       Names::DOCUMENTATION_NODE_REPARENTED,
       Names::DOCUMENTATION_NODE_CLONED,
-      Names::DOCUMENTATION_LAYER_CHANGED,
       Names::DOCUMENTATION_RELATIONSHIP_CREATED,
       Names::DOCUMENTATION_RELATIONSHIP_DELETED,
       Names::DOCUMENTATION_BLOCK_UPDATED,
       Names::DOCUMENTATION_BLOCK_DELETED,
-      Names::DOCUMENTATION_LAYER_CREATED,
-      Names::DOCUMENTATION_LAYER_UPDATED,
-      Names::DOCUMENTATION_LAYER_DELETED,
     ].to_set.freeze
 
     def self.filter
@@ -74,7 +70,7 @@ module Events
     # people editing one space would turn one person's drag into fifty graph queries.
     def build(name, payload, space)
       case name
-      when Names::DOCUMENTATION_NODE_CREATED, Names::DOCUMENTATION_NODE_UPDATED, Names::DOCUMENTATION_LAYER_CHANGED
+      when Names::DOCUMENTATION_NODE_CREATED, Names::DOCUMENTATION_NODE_UPDATED
         node = space.nodes.find_by(id: payload[:node_id])
         node && { node: Documentation::WireFormat.node(node, child_count: child_count(node)) }
 
@@ -101,12 +97,7 @@ module Events
         { relationshipId: payload[:relationship_id].to_s }
 
       when Names::DOCUMENTATION_BLOCK_UPDATED, Names::DOCUMENTATION_BLOCK_DELETED
-        # Only the fact, not the content: whoever has that node open refetches it, and
-        # whoever is editing it is already synchronised through the CRDT channel.
         { nodeId: payload[:node_id].to_s, blockId: payload[:block_id]&.to_s }
-
-      when Names::DOCUMENTATION_LAYER_CREATED, Names::DOCUMENTATION_LAYER_UPDATED, Names::DOCUMENTATION_LAYER_DELETED
-        { layers: Documentation::WireFormat.layers(space.reload) }
       end
     end
 

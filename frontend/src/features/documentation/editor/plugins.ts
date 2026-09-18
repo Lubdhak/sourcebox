@@ -29,6 +29,7 @@ import remarkGfm from 'remark-gfm'
 import { BlockDraggable } from '@/components/ui/block-draggable'
 import { BlockList } from '@/components/ui/block-list'
 import { BlockSelection } from '@/components/ui/block-selection'
+import { LinkFloatingToolbar } from '@/components/ui/link-floating-toolbar'
 import { DEFAULT_CODE_LANGUAGE, lowlight } from '@/features/documentation/blocks/highlight'
 import { MENTION_HREF_PREFIX, mentionNodeId } from '@/features/documentation/inspector/mentions'
 import { mentionKeys } from '@/features/documentation/editor/MentionPicker'
@@ -168,7 +169,24 @@ export const DOCUMENTATION_PLUGINS = [
   TableCellPlugin.withComponent(TableCellElement),
   TableCellHeaderPlugin.withComponent(TableCellElement),
 
-  LinkPlugin.withComponent(LinkElement),
+  /*
+    Links: click the toolbar button or type a URL followed by a space/Enter.
+
+    LinkPlugin owns the floating UI. When the toolbar's "Link" button is clicked
+    it enters insert mode; when the cursor is inside an existing link it enters
+    edit mode. The LinkFloatingToolbar component (rendered via `afterEditable`)
+    handles both, appearing near the cursor rather than at the top of the page.
+
+    Auto-link (automatic URL detection as you type) is handled by LinkPlugin's
+    own input rules when configured with `inputRules`. Without a separate
+    AutoLinkPlugin in this version, URLs pasted or typed can still be wrapped
+    manually via the toolbar button.
+  */
+  LinkPlugin.configure({
+    render: {
+      afterEditable: LinkFloatingToolbar,
+    },
+  }).withComponent(LinkElement),
 
   CodeBlockPlugin.configure({
     // ``` at the start of a line opens a block, the way it does in every other editor.

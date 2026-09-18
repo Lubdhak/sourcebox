@@ -1,11 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGraphState } from '@/features/documentation/useGraphState'
-import type { DocumentationNode, Layer, SpaceGraph } from '@/types'
+import type { DocumentationNode, SpaceGraph } from '@/types'
 
-// The network is the boundary being mocked, not the behaviour: every assertion below is
-// about what the hook does locally and what it sends, which is the whole contract of an
-// optimistic client.
 vi.mock('@/features/documentation/graphql', () => ({
   fetchSpaceGraph: vi.fn(),
   moveNodes: vi.fn(),
@@ -31,11 +28,8 @@ function node(id: string, x: number, y: number): DocumentationNode {
     position: { x, y, z: 0 },
     size: { width: 240, height: 120, depth: 0 },
     metadata: {},
-    layerId: null,
   }
 }
-
-const LAYERS: Layer[] = [{ id: '1', index: 0, name: 'System', description: null, nodeCount: 2 }]
 
 function graph(): SpaceGraph {
   return {
@@ -51,7 +45,7 @@ function graph(): SpaceGraph {
 
 function setup() {
   return renderHook(() =>
-    useGraphState({ spaceId: SPACE_ID, initialGraph: graph(), initialLayers: LAYERS }),
+    useGraphState({ spaceId: SPACE_ID, initialGraph: graph() }),
   )
 }
 
@@ -63,7 +57,6 @@ describe('useGraphState', () => {
       slug: 'platform',
       description: null,
       settings: {},
-      layers: LAYERS,
       graph: graph(),
     })
     vi.mocked(api.moveNodes).mockResolvedValue([])
@@ -282,7 +275,6 @@ describe('useGraphState', () => {
       slug: 'platform',
       description: null,
       settings: {},
-      layers: LAYERS,
       graph: { ...graph(), focusNode: node('2', 100, 0), trail: [] },
     })
 
@@ -308,19 +300,6 @@ describe('useGraphState', () => {
     act(() => result.current.dismissError())
 
     expect(result.current.error).toBeNull()
-  })
-
-  it('filters by layer on the server rather than hiding nodes locally', async () => {
-    const { result } = setup()
-
-    await act(async () => {
-      result.current.setLayerFilter('1')
-    })
-
-    await waitFor(() =>
-      expect(vi.mocked(api.fetchSpaceGraph).mock.calls.at(-1)?.[0]).toMatchObject({ layerId: '1' }),
-    )
-    expect(result.current.layerFilter).toBe('1')
   })
 
   it('adds a relationship returned by the server without duplicating it', async () => {

@@ -26,7 +26,6 @@ export interface NodeDetailApi {
     title?: string
     nodeType?: string
     summary?: string
-    layerId?: string | null
   }) => Promise<void>
   /**
    * Writes the whole page as one Markdown block.

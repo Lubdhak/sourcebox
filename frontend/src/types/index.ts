@@ -149,14 +149,13 @@ export interface SpatialSize {
 
 export interface DocumentationNode {
   id: string
-  /** Free-form, for example `service` or `table`. Not an enum -- see ContentBlockKind. */
+  /** Free-form, for example `service` or `table`. Not an enum — anything goes. */
   nodeType: string
   title: string
   summary: string | null
   position: SpatialPosition
   size: SpatialSize
   metadata: Record<string, unknown>
-  layerId: string | null
   /**
    * How many nodes this one contains, via `contains` edges.
    *
@@ -234,15 +233,6 @@ export interface NodeRelationship {
   targetNode?: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'>
 }
 
-export interface Layer {
-  id: string
-  /** Conceptual depth, 0-based: 0 = System, 1 = Services, and so on. */
-  index: number
-  name: string
-  description: string | null
-  nodeCount: number
-}
-
 export interface SpaceGraph {
   nodes: DocumentationNode[]
   relationships: NodeRelationship[]
@@ -294,7 +284,6 @@ export interface DocumentationSpace {
   slug: string
   description: string | null
   settings: Record<string, unknown>
-  layers?: Layer[]
   nodeCount?: number
   relationshipCount?: number
   /** What the signed-in user may do here. Decides which controls are offered. */
@@ -306,7 +295,7 @@ export interface DocumentationSpace {
 }
 
 export interface SearchResult {
-  node: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'> & { layerId?: string | null }
+  node: Pick<DocumentationNode, 'id' | 'title' | 'nodeType'>
   snippet: string
   rank: number
 }
@@ -323,7 +312,7 @@ export interface Collaborator {
 }
 
 export interface DocumentationSpacePageProps {
-  space: DocumentationSpace & { layers: Layer[] }
+  space: DocumentationSpace
   initialGraph: SpaceGraph
   /** Server-owned vocabularies, sent so the client does not keep a copy that can drift. */
   nodeTypes: string[]

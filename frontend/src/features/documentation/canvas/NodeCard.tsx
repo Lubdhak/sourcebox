@@ -28,7 +28,6 @@ export const RENAME_EVENT = 'documentation:rename'
 
 export interface NodeCardData extends Record<string, unknown> {
   node: DocumentationNode
-  layerName: string | null
   blockCount: number | null
   actions: NodeCardActions
   /** True while a link is being drawn and this card is a candidate target. */
@@ -83,7 +82,7 @@ export const NodeCard = memo(function NodeCard({
   data: NodeCardData
   selected?: boolean
 }) {
-  const { node, layerName, blockCount, actions, linking, editable, presentEditors, dropTarget } = data
+  const { node, blockCount, actions, linking, editable, presentEditors, dropTarget } = data
   const childCount = node.childCount ?? 0
   const parents = node.parents ?? []
   const lineage = describeLineage(node.nodeType, parents)
@@ -186,9 +185,6 @@ export const NodeCard = memo(function NodeCard({
             {lineage}
           </span>
         </span>
-        {layerName ? (
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{layerName}</span>
-        ) : null}
       </div>
 
       <div className="px-2.5 py-2">

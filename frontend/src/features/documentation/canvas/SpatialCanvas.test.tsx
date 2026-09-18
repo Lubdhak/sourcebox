@@ -2,19 +2,8 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SpatialCanvas } from '@/features/documentation/canvas/SpatialCanvas'
-import type { DocumentationNode, Layer } from '@/types'
+import type { DocumentationNode } from '@/types'
 
-/*
- * The canvas from the keyboard.
- *
- * Asserted through the wrapper's key events rather than through React Flow's internals,
- * because what is being protected is the binding table -- arrows walk the level, Enter
- * goes in, Escape comes out -- and that has to survive a React Flow upgrade changing how
- * it renders nodes.
- */
-
-// Laid out as two rows: A and B alongside each other, C below them. Reading order is
-// therefore A, B, C whatever order they arrive in.
 function node(id: string, x: number, y: number): DocumentationNode {
   return {
     id,
@@ -24,18 +13,15 @@ function node(id: string, x: number, y: number): DocumentationNode {
     position: { x, y, z: 0 },
     size: { width: 240, height: 120, depth: 0 },
     metadata: {},
-    layerId: 'l1',
   }
 }
 
 const NODES = [node('c', 0, 400), node('b', 300, 0), node('a', 0, 12)]
-const LAYERS: Layer[] = [{ id: 'l1', index: 0, name: 'Overview', description: null, nodeCount: 3 }]
 
 function setup(overrides: Partial<React.ComponentProps<typeof SpatialCanvas>> = {}) {
   const props = {
     nodes: NODES,
     relationships: [],
-    layers: LAYERS,
     selectedNodeId: null,
     focusKey: 'root',
     onSelectNode: vi.fn(),

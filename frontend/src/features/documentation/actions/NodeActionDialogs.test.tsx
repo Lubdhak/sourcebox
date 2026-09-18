@@ -19,7 +19,6 @@ function node(overrides: Partial<DocumentationNode> = {}): DocumentationNode {
     position: { x: 0, y: 0, z: 0 },
     size: { width: 240, height: 120, depth: 0 },
     metadata: {},
-    layerId: null,
     ...overrides,
   }
 }

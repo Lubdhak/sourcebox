@@ -44,9 +44,8 @@ module Documentation
       new(**kwargs).call
     end
 
-    def initialize(space:, layer_id: nil, viewport: nil, limit: DEFAULT_LIMIT, focus_node_id: nil)
+    def initialize(space:, viewport: nil, limit: DEFAULT_LIMIT, focus_node_id: nil)
       @space = space
-      @layer_id = layer_id
       @viewport = viewport
       @limit = limit.to_i.clamp(1, MAX_LIMIT)
       @focus_node_id = focus_node_id
@@ -104,16 +103,8 @@ module Documentation
     # Intersecting it with "top level only" would answer almost every such question with
     # an empty canvas, since depth beyond the first rung is by definition nested.
     def filtered_nodes(focus)
-      scope =
-        if focus
-          contained_by(focus)
-        elsif @layer_id.present?
-          @space.nodes
-        else
-          outermost
-        end
+      scope = focus ? contained_by(focus) : outermost
 
-      scope = scope.on_layer(@layer_id) if @layer_id.present?
       return scope if @viewport.blank?
 
       scope.within(

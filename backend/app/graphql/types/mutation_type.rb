@@ -13,10 +13,6 @@ module Types
     # makes future versioning a matter of consuming the event stream rather than rewriting
     # this layer.
     field :create_documentation_space, mutation: Mutations::CreateDocumentationSpace
-    field :create_layer, mutation: Mutations::CreateLayer
-    field :update_layer, mutation: Mutations::UpdateLayer
-    field :delete_layer, mutation: Mutations::DeleteLayer
-    field :reorder_layers, mutation: Mutations::ReorderLayers
     field :create_node, mutation: Mutations::CreateNode
     field :update_node, mutation: Mutations::UpdateNode
     field :move_nodes, mutation: Mutations::MoveNodes

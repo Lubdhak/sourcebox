@@ -61,7 +61,7 @@ class DocumentationSpacesController < ApplicationController
     snapshot = Documentation::GraphSnapshot.call(space: space, focus_node_id: params[:focus].presence)
 
     render inertia: "DocumentationSpace/Show", props: {
-      space: Documentation::WireFormat.space(space).merge(layers: Documentation::WireFormat.layers(space)),
+      space: Documentation::WireFormat.space(space),
       initialGraph: Documentation::WireFormat.graph(snapshot),
       # The vocabularies the editor offers. Server-owned, because the model validates
       # against the same constants, and sending them means the frontend does not keep a

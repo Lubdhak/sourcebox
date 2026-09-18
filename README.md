@@ -23,7 +23,7 @@ Things you may want to cover:
 
 * ...
 
-Features
+Upcoming Features - 
 
 - add capacity for owner & admin to give user access to view only specific node all its downstream nodes only.
 
@@ -35,17 +35,20 @@ Features
 
 - add provison for filling data / search programicatlly
 
-- add vector search & RAG support
+- add vector search & RAG support + HumanView | Stats being Tracked | VectorView | Agent Reads | 
 
 - add / validate node operations 
 
-- calender view to insert date
+- Draft & Publish state of node -> IF goes from published to draft again people with permissions[except]
 
-- Automatic URL/link detection
+- Image Support both upload + paste + drag & drop.
 
-- Draft & Publish
+- Dependant parts of graph is being edited 
 
-- Image Support
+- Rbac
 
-- Node added & updated by
+- calender view to insert date [default today on first load, next time onwards last selected date] : https://ui.shadcn.com/docs/components/aria/calendar
 
+- Node added & updated by + what was updated
+
+- Node linking with arrow direction + mandate naming the relation

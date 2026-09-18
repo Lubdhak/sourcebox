@@ -12,7 +12,7 @@ import { useSpaceChannel } from '@/features/documentation/collaboration/useSpace
 import { InspectorColumn } from '@/features/documentation/inspector/InspectorColumn'
 import { InspectorPanel } from '@/features/documentation/inspector/InspectorPanel'
 import { useInspectorTrail } from '@/features/documentation/inspector/useInspectorTrail'
-import { DepthMenu } from '@/features/documentation/layers/DepthMenu'
+import { NameRelationshipDialog } from '@/features/documentation/actions/NameRelationshipDialog'
 import { canEdit, ROLE_LABELS } from '@/features/documentation/roles'
 import { SearchPanel } from '@/features/documentation/search/SearchPanel'
 import { useGraphState } from '@/features/documentation/useGraphState'
@@ -22,18 +22,10 @@ import type { DocumentationNode, DocumentationSpacePageProps, NodeParent, Spatia
 /**
  * The spatial documentation page.
  *
- * Composition only: it wires the canvas, the ladder, the inspector, search and the
+ * Composition only: it wires the canvas, the inspector, search and the
  * realtime channel to one `useGraphState`, and decides whether the inspector is a column
- * or a sheet. No graph logic lives here -- the state hook owns the client's copy of the
- * graph, and the server owns the graph.
- *
- * The default relationship verb is `depends_on` rather than `contains`. Dragging a
- * connection is a statement about coupling far more often than about ownership, and the
- * verb is editable afterwards; defaulting to the hierarchical one would quietly push
- * every graph back towards a tree. Adding a node *inside* another one is the deliberate
- * exception, and it is a different gesture.
+ * or a sheet. No graph logic lives here.
  */
-const DEFAULT_RELATIONSHIP_TYPE = 'depends_on'
 
 function initialFocusFromUrl(): string | null {
   if (typeof window === 'undefined') return null
@@ -58,7 +50,6 @@ export default function DocumentationSpaceShow({
   const graph = useGraphState({
     spaceId: space.id,
     initialGraph,
-    initialLayers: space.layers,
     initialFocusNodeId: initialFocusFromUrl(),
   })
 
@@ -82,25 +73,15 @@ export default function DocumentationSpaceShow({
       setPendingPosition(position)
       history.reset()
 
-      // Created with a placeholder title and immediately selected, rather than behind a
-      // modal asking for a name. The inspector is already the place where a node is
-      // edited, so opening it on a new node is one fewer dialog and one fewer concept.
-      //
-      // Inside a drill-down the current focus is the parent, which is what makes "add"
-      // mean "add here" rather than "add somewhere in this space".
       const node = await graph.addNode({
         title: 'Untitled node',
-        nodeType: 'concept',
         x: position.x,
         y: position.y,
-        layerId: graph.layerFilter,
         parentNodeId: parentNodeId ?? graph.focusNodeId,
       })
 
       setPendingPosition(null)
 
-      // The canvas may have followed the new node to another level, so the collaborators'
-      // markers have to follow it too.
       if (node) {
         publishPresence({ focusNodeId: node.parents?.[0]?.id ?? null, selectedNodeId: node.id })
       }
@@ -124,11 +105,35 @@ export default function DocumentationSpaceShow({
     void createNodeAt(scatteredPosition())
   }, [createNodeAt, scatteredPosition])
 
-  const connectNodes = useCallback(
+  /*
+   * Connecting two nodes: shows a dialog that REQUIRES the user to name the
+   * relationship before it is created. The canvas calls this when the user finishes
+   * a drag from one node to another.
+   */
+  const [pendingConnection, setPendingConnection] = useState<{
+    sourceNodeId: string
+    targetNodeId: string
+  } | null>(null)
+
+  const handleConnectNodes = useCallback(
     (sourceNodeId: string, targetNodeId: string) => {
-      void graph.connectNodes(sourceNodeId, targetNodeId, DEFAULT_RELATIONSHIP_TYPE)
+      setPendingConnection({ sourceNodeId, targetNodeId })
     },
-    [graph],
+    [],
+  )
+
+  const confirmConnection = useCallback(
+    (relationshipType: string) => {
+      if (!pendingConnection) return
+
+      void graph.connectNodes(
+        pendingConnection.sourceNodeId,
+        pendingConnection.targetNodeId,
+        relationshipType,
+      )
+      setPendingConnection(null)
+    },
+    [graph, pendingConnection],
   )
 
   // Selection and focus are broadcast immediately rather than with the throttled cursor,
@@ -276,19 +281,11 @@ export default function DocumentationSpaceShow({
 
   const inspector = graph.selectedNodeId ? (
     <InspectorPanel
-      // Keyed by node id so switching selection remounts the panel. Without it, the
-      // editing state of the previous node -- an open block editor, a half-typed title --
-      // would carry over onto a different node's documentation.
       key={graph.selectedNodeId}
       nodeId={graph.selectedNodeId}
       spaceId={space.id}
-      layers={graph.layers}
-      // The nodes on screen, offered first when the author types `@`. Search covers the
-      // rest of the space; this covers the case that needs no round trip.
       levelNodes={graph.nodes}
       editable={mayEdit}
-      // Present only while a link has been followed, which is the only time there is
-      // somewhere to go back to.
       back={history.back ? { title: history.back.title, onBack: goBack } : null}
       onClose={() => selectNode(null)}
       onSelectNode={followLink}
@@ -317,19 +314,6 @@ export default function DocumentationSpaceShow({
           <PresenceBar peers={peers} self={collaborator} connected={connected} />
           <SearchPanel spaceId={space.id} onSelectNode={selectNode} />
 
-          <DepthMenu
-            layers={graph.layers}
-            activeLayerId={graph.layerFilter}
-            busy={graph.saving}
-            // Filtering by depth is reading, so everyone keeps it. Editing the ladder is
-            // a structural change to the space and goes with the other writes.
-            editable={mayEdit}
-            onSelect={graph.setLayerFilter}
-            onAdd={() => void graph.addLayer()}
-            onRename={(layerId, name) => void graph.renameLayer(layerId, name)}
-            onRemove={(layerId) => void graph.removeLayer(layerId)}
-          />
-
           {mayEdit ? (
             <Button size="sm" onClick={addNodeAtCentre} disabled={graph.saving}>
               <Plus className="size-4" />
@@ -339,7 +323,7 @@ export default function DocumentationSpaceShow({
         </div>
       </div>
     ),
-    [addNodeAtCentre, collaborator, connected, graph.addLayer, graph.layerFilter, graph.layers, graph.nodeCount, graph.relationshipCount, graph.removeLayer, graph.renameLayer, graph.saving, graph.setLayerFilter, mayEdit, peers, selectNode, space.id, space.name, viewerRole],
+    [addNodeAtCentre, collaborator, connected, graph.nodeCount, graph.relationshipCount, graph.saving, mayEdit, peers, selectNode, space.name, viewerRole],
   )
 
   return (
@@ -377,7 +361,7 @@ export default function DocumentationSpaceShow({
 
             {graph.truncated ? (
               <p className="absolute inset-x-0 bottom-0 z-10 bg-muted/90 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
-                Showing {graph.nodes.length} of {graph.nodeCount} nodes. Filter by depth to see the rest.
+                Showing {graph.nodes.length} of {graph.nodeCount} nodes. Drill into a folder to see the rest.
               </p>
             ) : null}
 
@@ -399,7 +383,6 @@ export default function DocumentationSpaceShow({
               nodes={graph.nodes}
               relationships={graph.relationships}
               neighbors={graph.neighbors}
-              layers={graph.layers}
               selectedNodeId={graph.selectedNodeId}
               focusNodeId={graph.focusNodeId}
               focusKey={graph.focusNodeId ?? 'root'}
@@ -407,7 +390,7 @@ export default function DocumentationSpaceShow({
               peers={peers}
               onSelectNode={selectNode}
               onMoveNode={graph.moveNode}
-              onConnectNodes={connectNodes}
+              onConnectNodes={handleConnectNodes}
               onCreateNodeAt={(position) => void createNodeAt(position)}
               onDeleteRelationship={(relationshipId) => void graph.removeRelationship(relationshipId)}
               onDive={dive}
@@ -415,8 +398,6 @@ export default function DocumentationSpaceShow({
               onDeleteNode={setDeleting}
               onRenameNode={(nodeId, title) => void graph.renameNode(nodeId, title)}
               onDuplicateNode={duplicateNode}
-              // The level on screen is the containment a dragged node is leaving, which is
-              // what keeps a node filed in two places from losing the other one.
               onReparentNode={(nodeId, newParentNodeId) =>
                 void graph.reparentNode(nodeId, newParentNodeId, graph.focusNodeId)
               }
@@ -430,6 +411,14 @@ export default function DocumentationSpaceShow({
                 Creating node…
               </p>
             ) : null}
+
+            <NameRelationshipDialog
+              open={pendingConnection !== null}
+              sourceNode={graph.nodes.find((n) => n.id === pendingConnection?.sourceNodeId) ?? null}
+              targetNode={graph.nodes.find((n) => n.id === pendingConnection?.targetNodeId) ?? null}
+              onConfirm={confirmConnection}
+              onCancel={() => setPendingConnection(null)}
+            />
 
             <DeleteNodeDialog
               node={nodeById(deleting)}
