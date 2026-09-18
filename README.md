@@ -31,7 +31,7 @@ Features
 
 - Improve for both user & agent
 
-- Remove Depth
+- Remove Depth & Associated Overview + concept, system node Types. a node can be just anythin but also make sure when connecting two node prompt and mandate user to name the relation. delete it from db level.
 
 - add provison for filling data / search programicatlly
 

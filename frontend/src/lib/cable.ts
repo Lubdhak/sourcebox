@@ -52,6 +52,25 @@ export interface RealtimeEnvelope {
  * cursors, and each one has to see the other. The id lives for as long as the page does,
  * which is also exactly as long as the subscription it identifies.
  */
+/**
+ * A different identity for every subscription, on top of the session's.
+ *
+ * Action Cable keys a connection's subscriptions by their identifier, which is the channel
+ * name plus the params. Two subscriptions to the same channel with the same params are
+ * therefore the *same* subscription to the server -- so when a component remounts and the
+ * old instance unsubscribes after the new one has subscribed, the server removes the entry
+ * the live subscription is still using. Everything it sends after that is answered with
+ * "unable to find subscription" and dropped on the floor: the socket looks healthy, the
+ * client keeps sending, and nothing is recorded.
+ *
+ * A nonce in the params makes each subscription its own identifier, so an unsubscribe can
+ * only ever remove the one it belongs to. The server ignores it; `session_id` is still what
+ * identifies the tab, because that is what filters a client's own echo.
+ */
+export function subscriptionId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 export const SESSION_ID: string =
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()

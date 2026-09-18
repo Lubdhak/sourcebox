@@ -23,7 +23,22 @@ function editor(markdown: string) {
 }
 
 function roundTrip(markdown: string): string {
-  return editor(markdown).getApi(MarkdownPlugin).markdown.serialize().trim()
+  return tidy(editor(markdown).getApi(MarkdownPlugin).markdown.serialize())
+}
+
+/**
+ * The two adjustments the editor makes to what remark writes, applied here too.
+ *
+ * Both exist so that a page which is only *read* is not rewritten: an empty line must not
+ * be stored as the zero-width space a document model uses for it, and a table's divider
+ * row is written the way every document already in the database writes it. See `write` in
+ * `PageEditor`, which is the one place that matters and the reason these are asserted.
+ */
+function tidy(markdown: string): string {
+  return markdown
+    .replace(/\u200B/g, '')
+    .replace(/^\|(?:\s*:?-+:?\s*\|)+$/gm, (row) => row.replace(/-+/g, '---'))
+    .trim()
 }
 
 describe('a documentation page as Markdown', () => {
@@ -46,7 +61,7 @@ describe('a documentation page as Markdown', () => {
   })
 
   it('keeps a table, which is the thing the old editor most often ate', () => {
-    const table = ['| Setting | Value |', '| ------- | ----- |', '| retries | 3     |'].join('\n')
+    const table = ['| Setting | Value |', '| --- | --- |', '| retries | 3 |'].join('\n')
 
     expect(roundTrip(table)).toBe(table)
   })
@@ -54,7 +69,7 @@ describe('a documentation page as Markdown', () => {
   it('keeps a table cell that contains the characters a row is made of', () => {
     // A literal pipe used to split the cell and the parser then dropped every cell past
     // the header's width. remark escapes it on the way out and unescapes it on the way in.
-    const table = ['| Verb        | Who   |', '| ----------- | ----- |', '| read \\| write | owner |'].join('\n')
+    const table = ['| Verb | Who |', '| --- | --- |', '| read \\| write | owner |'].join('\n')
 
     expect(roundTrip(table)).toContain('read \\| write')
   })
@@ -92,8 +107,8 @@ describe('a documentation page as Markdown', () => {
       'See [@Ledger](#node-7) and the table.',
       '',
       '| Setting | Value |',
-      '| ------- | ----- |',
-      '| retries | 3     |',
+      '| --- | --- |',
+      '| retries | 3 |',
       '',
       '```sql',
       'SELECT 1',

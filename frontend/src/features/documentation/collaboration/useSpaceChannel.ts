@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { cable, SESSION_ID, type RealtimeEnvelope } from '@/lib/cable'
+import { cable, SESSION_ID, subscriptionId, type RealtimeEnvelope } from '@/lib/cable'
 import { logger } from '@/lib/logger'
 
 /**
@@ -95,7 +95,7 @@ export function useSpaceChannel({
     if (!enabled) return
 
     const channel = cable().subscriptions.create(
-      { channel: 'SpaceChannel', space_id: spaceId, session_id: SESSION_ID },
+      { channel: 'SpaceChannel', space_id: spaceId, session_id: SESSION_ID, subscription_id: subscriptionId() },
       {
         connected() {
           setConnected(true)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
-import { cable, SESSION_ID, type RealtimeEnvelope } from '@/lib/cable'
+import { cable, SESSION_ID, subscriptionId, type RealtimeEnvelope } from '@/lib/cable'
 import { logger } from '@/lib/logger'
 import type { Collaborator } from '@/features/documentation/collaboration/useSpaceChannel'
 
@@ -106,7 +106,9 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
     let disposed = false
 
     const channel = cable().subscriptions.create(
-      { channel: 'NodeDocumentChannel', node_id: nodeId, session_id: SESSION_ID },
+      // The nonce is what keeps a remount from unsubscribing the subscription that
+      // replaced it. See `subscriptionId`.
+      { channel: 'NodeDocumentChannel', node_id: nodeId, session_id: SESSION_ID, subscription_id: subscriptionId() },
       {
         connected() {
           setConnected(true)

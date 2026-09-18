@@ -10,6 +10,8 @@ import {
   StrikethroughPlugin,
 } from '@platejs/basic-nodes/react'
 import { CodeBlockRules, getCodeLineEntry, indentCodeLine, outdentCodeLine } from '@platejs/code-block'
+import { DndPlugin } from '@platejs/dnd'
+import { BlockSelectionPlugin } from '@platejs/selection/react'
 import { CodeBlockPlugin, CodeLinePlugin, CodeSyntaxPlugin } from '@platejs/code-block/react'
 import { IndentPlugin } from '@platejs/indent/react'
 import { LinkPlugin } from '@platejs/link/react'
@@ -18,10 +20,15 @@ import { ListPlugin } from '@platejs/list/react'
 import { MarkdownPlugin, defaultRules } from '@platejs/markdown'
 import { MentionInputPlugin, MentionPlugin } from '@platejs/mention/react'
 import { TableCellHeaderPlugin, TableCellPlugin, TablePlugin, TableRowPlugin } from '@platejs/table/react'
-import { KEYS, NodeApi, TrailingBlockPlugin } from 'platejs'
+import { KEYS, NodeApi, TrailingBlockPlugin, getPluginTypes } from 'platejs'
 import { ParagraphPlugin } from 'platejs/react'
+import { createElement } from 'react'
+import { DndProvider } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
 import remarkGfm from 'remark-gfm'
+import { BlockDraggable } from '@/components/ui/block-draggable'
 import { BlockList } from '@/components/ui/block-list'
+import { BlockSelection } from '@/components/ui/block-selection'
 import { DEFAULT_CODE_LANGUAGE, lowlight } from '@/features/documentation/blocks/highlight'
 import { MENTION_HREF_PREFIX, mentionNodeId } from '@/features/documentation/inspector/mentions'
 import { mentionKeys } from '@/features/documentation/editor/MentionPicker'
@@ -65,6 +72,24 @@ import {
 
 /** One indent of code. Two spaces, the nesting every Markdown parser agrees on. */
 const CODE_INDENT = '  '
+
+/**
+ * GFM, told not to pad table rows out to their widest cell.
+ *
+ * `| -------- |` for a column whose longest word is eight characters is valid and is not
+ * what any document in the database says, so leaving it on would rewrite every table in
+ * the space the first time somebody opened its page -- and rewrite it again whenever a
+ * cell changed width. Wrapped in a function because the list Plate takes is plugins
+ * rather than plugin-and-options pairs.
+ */
+function unpaddedGfm(this: unknown) {
+  const gfm = remarkGfm as unknown as (
+    this: unknown,
+    options: { tablePipeAlign: boolean },
+  ) => undefined
+
+  return gfm.call(this, { tablePipeAlign: false })
+}
 
 /** The blocks that can be indented, and so can be list items. Plate's own list. */
 const INDENTABLE = [...KEYS.heading, KEYS.p, KEYS.blockquote, KEYS.codeBlock]
@@ -195,9 +220,38 @@ export const DOCUMENTATION_PLUGINS = [
     },
   }).withComponent(MentionInputElement),
 
+  /*
+    Selecting a block, and dragging it somewhere else.
+
+    Reordering is the operation a long page needs most and the one Markdown makes worst by
+    hand: moving a section means cutting a run of lines whose extent you have to work out
+    yourself, and a table or a fenced block is exactly where that goes wrong. A handle in
+    the margin turns it into one gesture.
+
+    Block selection is not decoration here -- the handle asks the selection API which
+    blocks are picked up, so a drag can move several at once.
+  */
+  BlockSelectionPlugin.configure(({ editor }) => ({
+    options: {
+      enableContextMenu: false,
+      // A cell and a line of code are parts of a block rather than blocks, and a page
+      // whose every code line has its own handle is a page of handles.
+      isSelectable: (element) =>
+        !getPluginTypes(editor, [KEYS.codeLine, KEYS.td, KEYS.th, KEYS.tr]).includes(element.type),
+    },
+    render: { belowRootNodes: (props) => createElement(BlockSelection, props as never) },
+  })),
+  DndPlugin.configure({
+    options: { enableScroller: true },
+    render: {
+      aboveNodes: BlockDraggable,
+      aboveSlate: ({ children }) => createElement(DndProvider, { backend: HTML5Backend }, children),
+    },
+  }),
+
   MarkdownPlugin.configure({
     options: {
-      remarkPlugins: [remarkGfm],
+      remarkPlugins: [unpaddedGfm],
       /*
         Written the way the documents already in the database are written.
 
