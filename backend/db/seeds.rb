@@ -116,4 +116,3 @@ puts <<~SUMMARY
   Google sign-in still requires real GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.
 
 SUMMARY
-
