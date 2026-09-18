@@ -1,7 +1,7 @@
 # =========================
 # Secrets — never commit
 # =========================
-.env
+
 .env.*
 !.env.example
 
@@ -88,3 +88,4 @@ Desktop.ini
 .vscode/*
 !.vscode/settings.example.json
 backend/tmp/*
+# env_vars/
