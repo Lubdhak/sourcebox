@@ -67,6 +67,15 @@ export interface NodeCardData extends Record<string, unknown> {
    * count with the edges it is holding and a card cannot.
    */
   disconnected: boolean
+  /**
+   * True when this is the card the arrow keys are on.
+   *
+   * Drawn differently from `selected` because it means something weaker. Selected is
+   * "this is the node the panel is describing"; this is only "this is the one Enter will
+   * open", which is a position rather than a choice -- so it gets the focus colour and
+   * sits outside the card, where it cannot be read as the card being active.
+   */
+  cursor: boolean
 }
 
 /**
@@ -99,7 +108,18 @@ export const NodeCard = memo(function NodeCard({
   data: NodeCardData
   selected?: boolean
 }) {
-  const { node, blockCount, actions, linking, editable, presentEditors, readers, dropTarget, disconnected } = data
+  const {
+    node,
+    blockCount,
+    actions,
+    linking,
+    editable,
+    presentEditors,
+    readers,
+    dropTarget,
+    disconnected,
+    cursor,
+  } = data
   const childCount = node.childCount ?? 0
   const blocks = blockCount ?? 0
   const parents = node.parents ?? []
@@ -130,6 +150,33 @@ export const NodeCard = memo(function NodeCard({
 
     return () => element.removeEventListener(RENAME_EVENT, start)
   }, [editable])
+
+  /*
+   * Puts the keyboard back on the card when a rename ends.
+   *
+   * The input is inside the card, so the browser's answer to it being unmounted -- by a
+   * commit or by Escape -- is to drop the focus onto the body, where the canvas's own keys
+   * reach nothing: the user would finish naming a node and find the arrow keys dead until
+   * they clicked something. Focusing the card is also how the canvas learns where its
+   * cursor is, so the two agree afterwards.
+   *
+   * Only from the body, and that condition is the whole subtlety: a rename also ends by
+   * the user clicking somewhere else, and that somewhere else is holding the focus on
+   * purpose. Rescuing a focus that has gone nowhere is different from taking one back.
+   *
+   * After the render that removes the input, not during it -- hence an effect. Moving the
+   * focus while the input is still mounted would blur it, and a blur is a commit.
+   */
+  const wasRenaming = useRef(false)
+
+  useEffect(() => {
+    const ended = wasRenaming.current && !renaming
+    wasRenaming.current = renaming
+
+    if (!ended || document.activeElement !== document.body) return
+
+    card.current?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true })
+  }, [renaming])
 
   const commitRename = (draft: string) => {
     setRenaming(false)
@@ -165,6 +212,10 @@ export const NodeCard = memo(function NodeCard({
         */
         disconnected ? 'bg-muted/40' : '',
         selected ? 'border-brand-500 ring-1 ring-brand-500' : 'border-border',
+        // Offset from the card rather than on it, so it reads as something pointing at
+        // the card. It survives a selection on the same card for the same reason: the two
+        // are different facts, and after clicking a card both are true of it.
+        cursor ? 'ring-2 ring-ring ring-offset-2 ring-offset-background' : '',
         linking ? 'border-dashed border-brand-400' : '',
         dropTarget ? 'border-brand-500 ring-2 ring-brand-400 ring-offset-1' : '',
         elevated ? 'shadow-md' : 'shadow-xs',

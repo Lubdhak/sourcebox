@@ -3,8 +3,8 @@ import { RadioGroup, RadioGroupCard } from '@/components/ui/radio-group'
 /**
  * One section of the decision: a label, and a stack of option cards.
  *
- * Serves both the deletion type and the disconnected-node policy, because they are the
- * same control with different words. Building two of them would have meant two places to
+ * Serves both the deletion type and what happens to the nodes inside, because they are
+ * the same control with different words. Building two of them would have meant two places to
  * fix the click target, and the click target matters here — the whole card is the radio,
  * so anywhere in it selects the option. A four-pixel circle is not a decision surface.
  *

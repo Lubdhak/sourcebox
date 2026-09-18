@@ -34,11 +34,11 @@ export function AffectedNodesPreview({
       entries: impact.selected.map((entry) => entry.title),
     },
     {
-      key: 'disconnected',
-      title:
-        policy.orphanPolicy === 'DELETE'
-          ? 'Disconnected — will be deleted'
-          : 'Disconnected — moved up to this level',
+      key: 'inside',
+      // Not "moved up to this level": this list runs the whole way down, and only the
+      // nodes directly inside the selection change level. The rest are kept in place,
+      // inside those.
+      title: policy.orphanPolicy === 'DELETE' ? 'Filed inside — will be deleted' : 'Filed inside — kept',
       marker: '○' as const,
       entries: impact.orphans.map((entry) => entry.title),
     },

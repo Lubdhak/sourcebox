@@ -106,6 +106,19 @@ export function useGraphState({
 }: UseGraphStateOptions): GraphStateApi {
   const [graph, setGraph] = useState<SpaceGraph>(initialGraph)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(initialFocusNodeId)
+  /*
+   * The level on screen, for the callbacks that must not be holding an old one.
+   *
+   * `refresh` is the reason. It re-asks the server for "this level", and a debounced
+   * caller runs it up to 400 ms after deciding to -- by which time the level may be a
+   * different one, because the thing that prompted the refresh was frequently also a
+   * navigation. Reading the focus from a closure meant re-loading the level the user had
+   * just left and landing them back at the top of the space: adding a node from the top
+   * level put the new node inside the outermost node, followed it in, and then bounced
+   * back out as the echo of the creation arrived.
+   */
+  const focusNodeIdRef = useRef(focusNodeId)
+  focusNodeIdRef.current = focusNodeId
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -174,11 +187,11 @@ export function useGraphState({
     inFlightRefetch.current = controller
 
     try {
-      await load(focusNodeId, controller.signal)
+      await load(focusNodeIdRef.current, controller.signal)
     } catch (err: unknown) {
       reportFailure(err, 'frontend.documentation_refresh_failed', 'Could not reload the graph.')
     }
-  }, [focusNodeId, load, reportFailure])
+  }, [load, reportFailure])
 
   /* --- Drill-down ------------------------------------------------------- */
 

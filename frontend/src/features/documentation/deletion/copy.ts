@@ -9,6 +9,13 @@ import type { DeletionPolicy, NodeDeletionImpact } from '@/types'
  * name the implementation rather than the consequence, and the consequence is the only
  * thing the person clicking has an opinion about.
  *
+ * "Disconnected" used to be here, and it was the same mistake one word further on. The
+ * product has no disconnected state to land in: what is filed inside a deleted node is
+ * re-attached to whatever contained that node, which is the level the card was on — so
+ * the nodes move up and take its place. The dialog said they would be cut loose, which
+ * was a worse outcome than the one it was describing, and it was the first thing a
+ * reader had to decide whether to believe.
+ *
  * Keeping it here rather than inline in JSX is what makes the wording reviewable as
  * wording, and what stops the same idea being phrased two ways in two sections.
  */
@@ -57,18 +64,34 @@ export const DELETION_MODE_OPTIONS = [
 export const ORPHAN_POLICY_OPTIONS = [
   {
     value: 'KEEP' as const,
-    title: 'Keep disconnected nodes',
+    title: 'Keep the nodes inside',
     lines: [
-      'Keep them even if they lose their parent or incoming reference.',
-      'They move up to the current level, in place of what is deleted.',
+      'The nodes directly inside move up to this level, taking the place of what is deleted.',
+      'Anything nested deeper stays where it is, inside them.',
     ],
   },
   {
     value: 'DELETE' as const,
-    title: 'Delete disconnected nodes',
-    lines: ['These nodes will be deleted as part of this operation.'],
+    title: 'Delete the nodes inside',
+    lines: [
+      'Everything filed inside goes too, however deeply nested.',
+      'A node that is also filed somewhere else is kept, in that place.',
+    ],
   },
 ]
+
+/**
+ * The containment question, worded for one node or many.
+ *
+ * A function rather than a constant because "inside this one" and "inside these" is the
+ * difference between a sentence about the card the user clicked and one about a selection
+ * they rubber-banded, and the dialog is the same component for both.
+ */
+export function insideSectionDescription(count: number): string {
+  return count === 1
+    ? 'What happens to the nodes filed inside this one.'
+    : 'What happens to the nodes filed inside these.'
+}
 
 /**
  * The impact statistics, worded for the policy in force.
@@ -97,10 +120,19 @@ export function impactStats(
       tone: 'destructive',
     })
   } else {
+    /*
+     * "Kept" rather than "moved up", because this counts every node inside the selection
+     * at any depth and only the top row of them changes hands: the rest move with their
+     * own parent and stay nested inside it. What is true of all of them is that they
+     * survive, which is also the number the other option would turn into deletions.
+     *
+     * Neutral, where this used to be amber. Amber was reporting the old wording rather
+     * than the outcome -- nothing here is lost -- so it argued against the safe default.
+     */
     stats.push({
       value: impact.orphanCount,
-      label: impact.orphanCount === 1 ? 'disconnected node' : 'disconnected nodes',
-      tone: impact.orphanCount > 0 ? 'warning' : 'neutral',
+      label: impact.orphanCount === 1 ? 'node kept' : 'nodes kept',
+      tone: 'neutral',
     })
   }
 
@@ -133,7 +165,8 @@ export function hardDeleteWarning(impact: NodeDeletionImpact, policy: DeletionPo
     lines.push(
       `This will permanently remove ${countNodes(impact.selectedCount)} and ${plural(
         impact.additionalDeleteCount,
-        'connected node',
+        'node filed inside them',
+        'nodes filed inside them',
       )}.`,
     )
   }

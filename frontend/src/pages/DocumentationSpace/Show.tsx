@@ -224,9 +224,9 @@ export default function DocumentationSpaceShow({
   }, [graph, history, publishPresence])
 
   const dive = useCallback(
-    (nodeId: string, options: { fromKeyboard?: boolean } = {}) => {
+    (nodeId: string) => {
       history.reset()
-      void graph.dive(nodeId, { selectOnArrival: options.fromKeyboard })
+      void graph.dive(nodeId)
       publishPresence({ focusNodeId: nodeId, selectedNodeId: null })
     },
     [graph, history, publishPresence],
@@ -322,23 +322,22 @@ export default function DocumentationSpaceShow({
     [graph, history, publishPresence],
   )
 
-  // One level up, from the breadcrumb button or from Escape on the canvas. The trail's
-  // last entry is where that is; an empty trail means the level above is the space itself.
-  const ascend = useCallback(
-    (options: { fromKeyboard?: boolean } = {}) => {
-      // Coming up by keyboard selects the node just left, so the collaborators' markers
-      // are told about it rather than being left pointing into the level below.
-      const arriving = graph.trail.at(-1)?.id ?? null
+  /*
+   * One level up, from the breadcrumb button or from Escape on the canvas.
+   *
+   * Nothing is selected on arrival, by either route. The canvas puts its keyboard cursor
+   * on the node just left -- which is the file-manager behaviour this used to get by
+   * selecting it -- and it does that without opening the inspector over the level being
+   * returned to.
+   */
+  const ascend = useCallback(() => {
+    // The trail's last entry is the level above; an empty trail means the space itself.
+    const arriving = graph.trail.at(-1)?.id ?? null
 
-      history.reset()
-      void graph.ascend({ selectOnArrival: options.fromKeyboard })
-      publishPresence({
-        focusNodeId: arriving,
-        selectedNodeId: options.fromKeyboard ? graph.focusNodeId : null,
-      })
-    },
-    [graph, history, publishPresence],
-  )
+    history.reset()
+    void graph.ascend()
+    publishPresence({ focusNodeId: arriving, selectedNodeId: null })
+  }, [graph, history, publishPresence])
 
   const inspector = graph.selectedNodeId ? (
     <InspectorPanel
@@ -348,7 +347,12 @@ export default function DocumentationSpaceShow({
       levelNodes={graph.nodes}
       editable={mayEdit}
       back={history.back ? { title: history.back.title, onBack: goBack } : null}
-      onClose={() => selectNode(null)}
+      onClose={() => {
+        selectNode(null)
+        // The button just clicked is about to be unmounted with the panel, which would
+        // leave the focus on the body and the canvas's keys dead until it was clicked.
+        canvasRef.current?.focus()
+      }}
       onSelectNode={followLink}
       onTitleLoaded={history.remember}
       onDeleteNode={(nodeId) => setDeletingIds([nodeId])}
@@ -467,6 +471,9 @@ export default function DocumentationSpaceShow({
               onMoveNode={graph.moveNode}
               onConnectNodes={handleConnectNodes}
               onCreateNodeAt={(position) => void createNodeAt(position)}
+              // `n` on the canvas, the same placement as the toolbar's button: the middle
+              // of the view, nudged so a run of them does not land in one stack.
+              onCreateNode={addNodeAtCentre}
               onDeleteRelationship={(relationshipId) => void graph.removeRelationship(relationshipId)}
               onDive={dive}
               onAscend={ascend}

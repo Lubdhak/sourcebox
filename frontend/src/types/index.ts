@@ -268,13 +268,20 @@ export interface NodeDeletionImpact {
    */
   digest: string
   selected: DeletionEntry[]
+  /**
+   * The nodes filed inside the selection whose only home it is.
+   *
+   * Named for the wire, not for the screen: under the default policy they are kept and
+   * re-filed one level up, into whatever contained the node being deleted, so the dialog
+   * calls them the nodes that move up. See `deletion/copy.ts`.
+   */
   orphans: DeletionEntry[]
   retained: DeletionEntry[]
   references: DeletionReference[]
   selectedCount: number
   orphanCount: number
   referenceCount: number
-  /** Nodes deleted beyond the selection. Zero when disconnected nodes are kept. */
+  /** Nodes deleted beyond the selection. Zero when the nodes inside are kept. */
   additionalDeleteCount: number
   /** Total nodes this operation would delete. */
   deleteCount: number

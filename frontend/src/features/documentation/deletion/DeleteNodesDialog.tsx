@@ -23,6 +23,7 @@ import {
   confirmLabel,
   dialogDescription,
   dialogTitle,
+  insideSectionDescription,
   requiresTypedConfirmation,
 } from '@/features/documentation/deletion/copy'
 import { useNodeDeletion } from '@/features/documentation/deletion/useNodeDeletion'
@@ -157,8 +158,8 @@ export function DeleteNodesDialog({
           />
 
           <PolicySelector<OrphanPolicy>
-            section="Connected nodes"
-            description="Some nodes may become disconnected when these nodes are deleted."
+            section="Nodes inside"
+            description={insideSectionDescription(count)}
             value={policy.orphanPolicy}
             options={ORPHAN_POLICY_OPTIONS}
             disabled={deleting}

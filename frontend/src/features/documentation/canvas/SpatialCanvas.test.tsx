@@ -29,12 +29,30 @@ function setup(overrides: Partial<React.ComponentProps<typeof SpatialCanvas>> = 
     onDive: vi.fn(),
     onAscend: vi.fn(),
     onDeleteNode: vi.fn(),
+    onCreateNode: vi.fn(),
     ...overrides,
   }
 
-  render(<SpatialCanvas {...props} />)
+  const view = render(<SpatialCanvas {...props} />)
 
-  return { props, canvas: screen.getByTestId('spatial-canvas') }
+  return {
+    props,
+    canvas: screen.getByTestId('spatial-canvas'),
+    /** Re-renders with a changed prop, for the tests that move between levels. */
+    update: (next: Partial<React.ComponentProps<typeof SpatialCanvas>>) =>
+      view.rerender(<SpatialCanvas {...props} {...next} />),
+  }
+}
+
+/**
+ * Where the keyboard cursor is, read the way a screen reader reads it.
+ *
+ * The cursor is a ring on a card, which is nothing to assert on -- and in jsdom the cards
+ * are not measured, so React Flow may not have drawn any. The live region says the same
+ * thing in words and is rendered from the same state.
+ */
+function cursor(): string {
+  return screen.getByTestId('spatial-canvas').querySelector('[aria-live="polite"]')?.textContent ?? ''
 }
 
 describe('SpatialCanvas keyboard', () => {
@@ -43,74 +61,132 @@ describe('SpatialCanvas keyboard', () => {
   })
 
   it('walks the level in reading order rather than the order nodes arrived', async () => {
-    const { props, canvas } = setup()
+    const { canvas } = setup()
     canvas.focus()
 
     // Top row first, left to right: a, then b. Not c, which is 400px below both.
     await userEvent.keyboard('{ArrowRight}')
-    expect(props.onSelectNode).toHaveBeenLastCalledWith('a')
+    expect(cursor()).toBe('Node a, 1 of 3')
+
+    await userEvent.keyboard('{ArrowRight}')
+    expect(cursor()).toBe('Node b, 2 of 3')
+  })
+
+  it('moves the cursor without selecting, so walking a level opens no panels', async () => {
+    const { props, canvas } = setup()
+    canvas.focus()
+
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}')
+
+    // The whole reason the cursor exists: selecting each card in turn would fetch and
+    // open its page, and cover the canvas being walked with the panel it opens in.
+    expect(props.onSelectNode).not.toHaveBeenCalled()
   })
 
   it('wraps round, so the level is a loop and not a line with two dead ends', async () => {
-    const { props, canvas } = setup({ selectedNodeId: 'c' })
+    const { canvas } = setup({ selectedNodeId: 'c' })
     canvas.focus()
 
-    // c is last in reading order, so forward comes back to the first card.
+    // The cursor starts from the selection, which is how a session that began with the
+    // mouse carries on with the keyboard. c is last, so forward comes back to the first.
     await userEvent.keyboard('{ArrowRight}')
-    expect(props.onSelectNode).toHaveBeenLastCalledWith('a')
+    expect(cursor()).toBe('Node a, 1 of 3')
 
-    // And backward from the first wraps to the last. This continues from `a` rather than
-    // from the stale `selectedNodeId` prop because the previous step moved the keyboard
-    // focus onto that card -- which is what lets a run of arrow presses work without the
-    // page re-rendering between each one.
+    // And backward from the first wraps to the last. It continues from `a` -- where the
+    // last press left the cursor -- rather than from the `selectedNodeId` prop, which
+    // still says c and has not been touched by any of this.
     await userEvent.keyboard('{ArrowLeft}')
-    expect(props.onSelectNode).toHaveBeenLastCalledWith('c')
+    expect(cursor()).toBe('Node c, 3 of 3')
   })
 
-  it('opens the selected node on Enter, asking for something to be selected on arrival', async () => {
-    const { props, canvas } = setup({ selectedNodeId: 'b' })
+  it('treats Down as forward and Up as back, because the cycle has one dimension', async () => {
+    const { canvas } = setup({ selectedNodeId: 'a' })
     canvas.focus()
 
-    await userEvent.keyboard('{Enter}')
+    await userEvent.keyboard('{ArrowDown}')
+    expect(cursor()).toBe('Node b, 2 of 3')
 
-    // The flag is what keeps a keyboard run going: the level being arrived at has to
-    // select something, or the next keystroke has nothing to act on.
-    expect(props.onDive).toHaveBeenCalledWith('b', { fromKeyboard: true })
+    await userEvent.keyboard('{ArrowUp}')
+    expect(cursor()).toBe('Node a, 1 of 3')
   })
 
-  it('leaves the level on Escape, and keeps the keyboard inside the canvas', async () => {
-    const { props, canvas } = setup({ selectedNodeId: 'b' })
+  it('goes inside the card under the cursor on Enter', async () => {
+    const { props, canvas } = setup()
+    canvas.focus()
+
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}{Enter}')
+
+    expect(props.onDive).toHaveBeenCalledWith('b')
+  })
+
+  it('puts the cursor on the first card of the level it dives into', async () => {
+    const { canvas, update } = setup()
+    canvas.focus()
+
+    await userEvent.keyboard('{ArrowRight}{Enter}')
+
+    // The level arrives as new props: different cards, a different focus key. Landing the
+    // cursor on the first of them is what lets a keyboard run continue past a dive.
+    const inside = [node('x', 0, 0), node('y', 300, 0)]
+    update({ nodes: inside, focusKey: 'a' })
+
+    expect(cursor()).toBe('Node x, 1 of 2')
+  })
+
+  it('leaves the level on Escape, landing the cursor on the node just left', async () => {
+    const { props, canvas, update } = setup({ focusNodeId: 'b', focusKey: 'b' })
     canvas.focus()
 
     await userEvent.keyboard('{Escape}')
 
-    expect(props.onAscend).toHaveBeenCalledWith({ fromKeyboard: true })
+    expect(props.onAscend).toHaveBeenCalledWith()
     // Escape must not also open or move anything.
     expect(props.onDive).not.toHaveBeenCalled()
     // Every card here is about to be unmounted, so the focus is parked on the canvas
     // rather than being dropped onto the body, where the next key would reach nothing.
     expect(document.activeElement).toBe(canvas)
+
+    // Coming up puts the cursor on the node that was being looked inside, the way a file
+    // manager leaves the folder you came out of selected.
+    update({ focusNodeId: null, focusKey: 'root' })
+    expect(cursor()).toBe('Node b, 2 of 3')
   })
 
-  it('nudges the card with Shift held, which is what arrows alone used to do', async () => {
+  it('adds a node on n, and leaves Cmd+N to the browser', async () => {
+    const { props, canvas } = setup()
+    canvas.focus()
+
+    await userEvent.keyboard('n')
+    expect(props.onCreateNode).toHaveBeenCalledTimes(1)
+
+    await userEvent.keyboard('{Meta>}n{/Meta}')
+    expect(props.onCreateNode).toHaveBeenCalledTimes(1)
+  })
+
+  it('nudges the card under the cursor with Shift held', async () => {
     const { props, canvas } = setup({ selectedNodeId: 'a' })
     canvas.focus()
 
     await userEvent.keyboard('{Shift>}{ArrowRight}{/Shift}')
 
     expect(props.onMoveNode).toHaveBeenCalledWith('a', { x: 16, y: 12, z: 0 })
-    expect(props.onSelectNode).not.toHaveBeenCalled()
+    // Shift moves the card, not the cursor: the two are the same keys and this is the
+    // only thing that distinguishes them.
+    expect(cursor()).toBe('Node a, 1 of 3')
   })
 
-  it('leaves the keys alone for a reader who may not move anything', async () => {
+  it('leaves the keys alone for a reader who may not change anything', async () => {
     const { props, canvas } = setup({ selectedNodeId: 'a', editable: false })
     canvas.focus()
 
     await userEvent.keyboard('{Shift>}{ArrowRight}{/Shift}')
     expect(props.onMoveNode).not.toHaveBeenCalled()
 
+    await userEvent.keyboard('n')
+    expect(props.onCreateNode).not.toHaveBeenCalled()
+
     // Navigation is reading, so it stays.
     await userEvent.keyboard('{ArrowRight}')
-    expect(props.onSelectNode).toHaveBeenLastCalledWith('b')
+    expect(cursor()).toBe('Node b, 2 of 3')
   })
 })
