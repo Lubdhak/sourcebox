@@ -5,9 +5,8 @@ import { readCsrfToken } from '@/lib/csrf'
 import type { InertiaSharedProps, LoginPageProps } from '@/types'
 
 /**
- * Google is the only identity provider, so this page has no fields — just a button that
- * hands off to OAuth. Development also renders an email/password form so a fresh checkout
- * can sign in without Google credentials.
+ * Google is the primary identity provider, with an optional email/password form controlled
+ * by the server.
  *
  * Visual language follows BetterCloud Track's login: split teal brand panel + white
  * form, Lato-adjacent sans, teal primary, outlined Google button.
@@ -103,19 +102,17 @@ export default function Login({ googleAuthPath, allowPasswordSignIn, error }: Lo
             </form>
 
             {/*
-              Development-only email/password form.
+              Optional email/password form.
 
               Rendered only when the server says so, never on the strength of a client-side
-              environment check: `import.meta.env.DEV` is a build-time flag, so a production
-              build made with the wrong NODE_ENV would ship a live password form. The server
-              is the only thing that actually knows which environment it is running in.
+              environment check.
             */}
             {allowPasswordSignIn && (
               <>
                 <div className="my-7 flex items-center gap-3">
                   <span className="h-px flex-1 bg-[#eaebec]" />
                   <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#989ba2]">
-                    Dev only
+                    Email login
                   </span>
                   <span className="h-px flex-1 bg-[#eaebec]" />
                 </div>

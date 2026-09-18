@@ -38,6 +38,8 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      - key: EMAIL_PASS_LOGIN
+        value: "true"
       - key: JOB_CONCURRENCY
         value: "2"
       - key: JOB_CONCURRENCY_CRITICAL

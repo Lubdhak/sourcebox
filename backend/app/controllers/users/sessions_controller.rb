@@ -23,12 +23,10 @@ module Users
 
         # Whether to show the email/password form.
         #
-        # Development only, and deliberately so. Google OAuth needs real client credentials,
-        # which a fresh checkout does not have, so without this there is no way to sign in
-        # locally at all. In production Google is the only path in, and rendering a password
-        # form there would invite credential-stuffing against accounts that were created
-        # through OAuth and have a random password.
-        allowPasswordSignIn: Rails.env.development?,
+        # Keep this available locally without extra configuration, while allowing production
+        # deployments to opt in explicitly. Google OAuth remains the default production path.
+        allowPasswordSignIn: Rails.env.development? ||
+          ActiveModel::Type::Boolean.new.cast(ENV.fetch("EMAIL_PASS_LOGIN", false)),
 
         # Set by Devise's failure app on a bad sign-in, and by the OAuth callback controller
         # on a provider error. Generic by design: `Devise.paranoid = true` keeps this from

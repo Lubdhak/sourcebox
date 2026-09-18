@@ -49,7 +49,7 @@ export type InertiaSharedProps = SharedProps & Record<string, unknown>
 
 export interface LoginPageProps {
   googleAuthPath: string
-  /** Development only: Google OAuth needs real credentials a fresh checkout lacks. */
+  /** Enabled by the server when email/password authentication is available. */
   allowPasswordSignIn: boolean
   error?: string
 }
