@@ -349,11 +349,22 @@ export interface DocumentationSpaceIndexPageProps {
   spaces: DocumentationSpace[]
 }
 
-/** Who the signed-in user is on the presence layer. Everyone else arrives over the socket. */
+/**
+ * Who the signed-in user is on the presence layer. Everyone else arrives over the
+ * socket, built by the same `Documentation::WireFormat.actor` on the server, so this is
+ * also the shape of every peer in `useSpaceChannel` and `useCollaborativeDocument`.
+ */
 export interface Collaborator {
   id: string
   name: string
+  email: string
+  /** Google profile image, when signed in that way. Null falls back to initials. */
+  avatarUrl: string | null
   colorSeed: number
+  /** This person's standing in the space they were seen in. Null is not expected in
+   * practice -- only an authorized subscriber ever reaches a presence channel -- but the
+   * type stays honest about what the server could send. */
+  role: SpaceRole | null
 }
 
 export interface DocumentationSpacePageProps {

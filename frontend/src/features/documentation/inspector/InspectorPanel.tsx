@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkdownBlock } from '@/features/documentation/blocks/MarkdownBlock'
 import { useCollaborativeDocument } from '@/features/documentation/collaboration/useCollaborativeDocument'
+import { PersonAvatar } from '@/features/documentation/collaboration/PersonAvatar'
 import {
   DISCONNECTED_HINT,
   DISCONNECTED_LABEL,
@@ -164,6 +165,21 @@ export function InspectorPanel({
               <DisconnectedIcon className="size-3" aria-hidden />
               {DISCONNECTED_LABEL}
             </span>
+          ) : null}
+
+          {/*
+            Who else has this page open, right now, in the same round photo the header
+            bar uses -- so a face here and a face there are recognisably the same fact
+            read from two distances. Placed on the same line as Edit rather than beside
+            the title: the title row is about *this node*, and this row is already about
+            who is looking at it, next to the control they might collide with.
+          */}
+          {page.viewers.length > 0 ? (
+            <div className="flex -space-x-1" aria-label={`${page.viewers.length} other ${page.viewers.length === 1 ? 'person is' : 'people are'} viewing this page`}>
+              {page.viewers.map((viewer) => (
+                <PersonAvatar key={viewer.id} actor={viewer} size="xs" />
+              ))}
+            </div>
           ) : null}
 
           {editable && !editing ? (

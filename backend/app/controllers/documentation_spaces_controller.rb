@@ -59,6 +59,7 @@ class DocumentationSpacesController < ApplicationController
     # "look at what I am looking at" as a link, and a refresh keeps the user where they
     # were rather than throwing them back to the top of the space.
     snapshot = Documentation::GraphSnapshot.call(space: space, focus_node_id: params[:focus].presence)
+    role = space.role_for(current_user)
 
     render inertia: "DocumentationSpace/Show", props: {
       space: Documentation::WireFormat.space(space),
@@ -69,16 +70,13 @@ class DocumentationSpacesController < ApplicationController
       relationshipTypes: NodeRelationship::SUGGESTED_TYPES,
       blockTypes: ContentBlock::TYPES.map(&:upcase),
       # Who the client is, for its own presence marker. Everyone else's identity arrives
-      # over the channel.
-      collaborator: {
-        id: current_user.id.to_s,
-        name: current_user.display_name,
-        colorSeed: current_user.id,
-      },
+      # over the channel, built by the same WireFormat.actor so a photo or a role is
+      # never present on one and missing on the other.
+      collaborator: Documentation::WireFormat.actor(current_user, role: role),
       # What this person may do here. The client uses it to decide which controls to
       # offer; it is not the enforcement -- every mutation re-derives the same answer
       # server-side, because a hidden button is a courtesy, not a boundary.
-      viewerRole: space.role_for(current_user)&.upcase,
+      viewerRole: role&.upcase,
     }
   end
 end

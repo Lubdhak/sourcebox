@@ -57,7 +57,7 @@ export default function DocumentationSpaceShow({
 
   // The socket hands structural messages straight to the graph state. This page does not
   // interpret them; it only decides that they belong together.
-  const { peers, connected, publishCursor, publishPresence } = useSpaceChannel({
+  const { peers, connected, publishPresence } = useSpaceChannel({
     spaceId: space.id,
     onGraphMessage: graph.applyRealtime,
   })
@@ -486,7 +486,6 @@ export default function DocumentationSpaceShow({
               }
               onOpenNeighbor={openNeighbor}
               onGoUp={goUp}
-              onPointerPosition={(position) => publishCursor(position)}
             />
 
             {pendingPosition ? (

@@ -19,6 +19,9 @@ class NodeDocumentChannel < ApplicationCable::Channel
     node = authorized_node(params[:node_id], :write)
     return reject if node.nil?
 
+    # Cached alongside the document rather than re-derived per awareness message: it is a
+    # fact about this subscription, not about any one broadcast.
+    @role = node.documentation_space.role_for(current_user)
     @document = CrdtDocument.for_node(node)
 
     stream_for @document
@@ -27,6 +30,20 @@ class NodeDocumentChannel < ApplicationCable::Channel
     # to them, and broadcasting a full document to everyone whenever somebody opens a
     # node would make an editing session quadratic in the number of editors.
     transmit({ type: "sync" }.merge(@document.sync_payload))
+  end
+
+  # Tells everyone else this session's face should come off their roster.
+  #
+  # Best effort, the same as SpaceChannel's: a tab that is killed rather than closed
+  # never gets here, and there is no reaper on this side to age the entry out once it is
+  # stale. Accepted for the reason that comment gives too -- catching every case would
+  # mean a heartbeat for a presence signal nothing here currently sends one for, and the
+  # common case (closing the panel, navigating away, a normal tab close) already reaches
+  # this every time.
+  def unsubscribed
+    return if @document.nil?
+
+    NodeDocumentChannel.broadcast_to(@document, { type: "left", sessionId: session_id })
   end
 
   # A CRDT update from one client, on its way to all the others.
@@ -67,11 +84,7 @@ class NodeDocumentChannel < ApplicationCable::Channel
       type: "awareness",
       state: data["state"],
       sessionId: session_id,
-      actor: {
-        id: current_user.id.to_s,
-        name: current_user.display_name,
-        colorSeed: current_user.id,
-      },
+      actor: Documentation::WireFormat.actor(current_user, role: @role),
     })
   end
 

@@ -18,7 +18,8 @@ import type { Collaborator } from '@/features/documentation/collaboration/useSpa
  *
  *   sync       server -> client   snapshot plus the updates recorded after it
  *   update     both ways          one encoded Yjs update
- *   awareness  both ways          who is editing, never stored
+ *   awareness  both ways          who has this node open, and who is typing; never stored
+ *   left       server -> client   a session's subscription ended
  *   compact    client -> server   a merged snapshot, so the log can be truncated
  *
  * Compaction is done by a client because only a client can merge. The server's job is to
@@ -95,6 +96,10 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
 
   const subscription = useRef<{ perform: (action: string, data?: object) => void; unsubscribe: () => void } | null>(null)
   const highestSeq = useRef(0)
+  // What this client would say if asked right now. `announceEditing` writes it;
+  // `received` reads it when answering a newcomer, so the answer is never stale by more
+  // than the time between a focus change and the next render.
+  const myEditing = useRef<string | null>(null)
 
   useEffect(() => () => doc.destroy(), [doc])
 
@@ -102,6 +107,17 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
     if (!nodeId || !enabled) return
 
     let disposed = false
+
+    // Every sessionId this client has already heard from, on this document. Local to the
+    // subscription rather than a ref: it describes what *this* channel connection knows,
+    // and a new node -- a new subscription -- has heard from no one yet.
+    const answeredSessions = new Set<string>()
+
+    // `myEditing` is a ref because `announceEditing` needs to reach it from outside this
+    // effect, but its value describes standing in *this* node's document -- carrying a
+    // stale "editing" from the node just left into this one's first announcement would
+    // tell everyone here that a page they have not opened yet is being typed into.
+    myEditing.current = null
 
     const channel = cable().subscriptions.create(
       // The nonce is what keeps a remount from unsubscribing the subscription that
@@ -132,16 +148,44 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
               Y.applyUpdate(doc, toBytes(message.update), 'remote')
               if (message.seq) highestSeq.current = Math.max(highestSeq.current, message.seq)
               break
-            case 'awareness':
+            case 'awareness': {
               if (message.sessionId === SESSION_ID || !message.actor) return
+              const sessionId = String(message.sessionId)
+
               setEditors((current) => ({
                 ...current,
-                [String(message.sessionId)]: {
-                  sessionId: String(message.sessionId),
+                [sessionId]: {
+                  sessionId,
                   actor: message.actor as Collaborator,
                   editing: message.state?.editing ?? null,
                 },
               }))
+
+              /*
+                Answered once per session, the way SpaceChannel answers a `hello`:
+                broadcasting is not asking, so a client that joined before this sender
+                would otherwise never learn it is here too. Every subsequent message from
+                the same session is a real change (focus, blur) rather than an
+                introduction, and gets no reply -- an answer to every keystroke's
+                awareness update would double the traffic this channel carries for
+                nothing outside this client's own roster.
+              */
+              if (!answeredSessions.has(sessionId)) {
+                answeredSessions.add(sessionId)
+                channel.perform('awareness', { state: { editing: myEditing.current } })
+              }
+              break
+            }
+            // The other end of `awareness`: a session that had this node open no longer
+            // does. Without it, closing a tab would leave a face in every remaining
+            // viewer's roster for a document nobody is looking at anymore.
+            case 'left':
+              setEditors((current) => {
+                if (!message.sessionId || !(String(message.sessionId) in current)) return current
+                const next = { ...current }
+                delete next[String(message.sessionId)]
+                return next
+              })
               break
             case 'rejected':
               logger.warn('frontend.node_document_update_rejected', { nodeId })
@@ -170,6 +214,20 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
           throughSeq: highestSeq.current,
         })
       }
+
+      /*
+        Says "I have this open" the moment it is true, rather than waiting for the editor
+        to be focused.
+
+        Without this, `editors` held only people who had clicked into the text -- so a
+        panel opened to read, not to type, told nobody it was open at all, and a viewer's
+        own "who else is here" roster stayed empty for exactly the visits it most needed
+        to show. `announceEditing` still fires its own `awareness` on focus and blur; this
+        is the announcement that comes before either one, so a reader counts as present
+        without having to become a writer first. Reads `myEditing` rather than hardcoding
+        null in case the editor has already claimed focus by the time sync completes.
+      */
+      channel.perform('awareness', { state: { editing: myEditing.current } })
     }
 
     // Local edits out. Filtering on origin is what separates "the user typed" from "we
@@ -195,6 +253,7 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
   }, [doc, enabled, nodeId])
 
   const announceEditing = useCallback((editing: string | null) => {
+    myEditing.current = editing
     subscription.current?.perform('awareness', { state: { editing } })
   }, [])
 

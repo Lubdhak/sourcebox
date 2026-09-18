@@ -27,6 +27,28 @@ module Documentation
         }
       end
 
+      # The signed-in identity as every presence surface shows it: face, name, address,
+      # and what this person may do in the space they are being shown in. One definition
+      # so the Inertia snapshot, the space channel and the node channel never drift on
+      # what a peer's card carries -- a photo everywhere but one, or a role spelled two
+      # ways, is exactly the kind of thing three call sites converge on if the shape is
+      # not written down once.
+      #
+      # `role` is passed in rather than computed here: an actor is being described in
+      # the context of one particular space, and which space that is is something only
+      # the caller knows -- a channel already has it from authorizing the subscription,
+      # so this does not re-derive it with a second query.
+      def actor(user, role:)
+        {
+          id: user.id.to_s,
+          name: user.display_name,
+          email: user.email,
+          avatarUrl: user.avatar_url,
+          colorSeed: user.id,
+          role: role&.upcase,
+        }
+      end
+
       # Access, as the client needs to see it: one person's row in the share dialog.
       #
       # The role is upcased because that is how the GraphQL enum spells it, and this

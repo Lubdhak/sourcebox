@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { blocksToMarkdown, isSingleMarkdownPage } from '@/features/documentation/inspector/pageMarkdown'
+import { dedupeByActor } from '@/features/documentation/collaboration/dedupeByActor'
 import {
   PAGE_KEY,
   type CollaborativeDocument,
 } from '@/features/documentation/collaboration/useCollaborativeDocument'
-import type { ContentBlock } from '@/types'
+import type { Collaborator, ContentBlock } from '@/types'
 
 /**
  * One node's documentation as a single editable body, and the seam to the database.
@@ -71,6 +72,15 @@ export interface PageBody {
   saving: boolean
   /** Other people with this page open. */
   editorNames: string[]
+  /**
+   * Everyone else with this node's panel open right now, actively typing or just
+   * reading -- one entry per person, photo and all, for the panel's own presence row.
+   *
+   * Wider than `editorNames` on purpose: that list is who the footer warns you might be
+   * typing at the same time, so it only counts a focused editor. This is "who is here",
+   * which is true the moment someone has the page open at all.
+   */
+  viewers: Collaborator[]
   /**
    * Set when saving will change how the page is stored, so the author is told
    * before it happens rather than noticing afterwards.
@@ -196,9 +206,15 @@ export function usePageBody({
   }, [blocks, stored])
 
   const editorNames = useMemo(
-    () => editors.filter((peer) => peer.editing === PAGE_KEY).map((peer) => peer.actor.name),
+    () =>
+      // Filter to who is actually in here first, then collapse to one name per person --
+      // in that order, so a person editing from two tabs is counted as here from either
+      // one, rather than only if their most recent session happens to be the active one.
+      dedupeByActor(editors.filter((peer) => peer.editing === PAGE_KEY)).map((peer) => peer.actor.name),
     [editors],
   )
+
+  const viewers = useMemo(() => dedupeByActor(editors).map((peer) => peer.actor), [editors])
 
   return {
     document,
@@ -207,6 +223,7 @@ export function usePageBody({
     synced,
     saving,
     editorNames,
+    viewers,
     conversionNotice: isSingleMarkdownPage(blocks)
       ? null
       : 'Tables and snippets on this page are saved as Markdown.',

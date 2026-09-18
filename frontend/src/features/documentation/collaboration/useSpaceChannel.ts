@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cable, SESSION_ID, subscriptionId, type RealtimeEnvelope } from '@/lib/cable'
 import { logger } from '@/lib/logger'
+import type { Collaborator } from '@/types'
+
+export type { Collaborator }
 
 /**
  * Subscribes to one space's live feed: who else is here, and what they are changing.
@@ -21,25 +24,9 @@ import { logger } from '@/lib/logger'
 const PEER_TTL_MS = 45_000
 const HEARTBEAT_MS = 15_000
 
-/**
- * Cursor updates are throttled hard. A pointer emits moves at display frequency, and
- * every message is a row in the cable database fanned out to everyone in the space:
- * at fifty collaborators, sending every frame would be thousands of writes a second to
- * show something nobody can perceive at that resolution.
- */
-const CURSOR_THROTTLE_MS = 80
-
-export interface Collaborator {
-  id: string
-  name: string
-  colorSeed: number
-}
-
 export interface Peer {
   sessionId: string
   actor: Collaborator
-  x?: number
-  y?: number
   focusNodeId?: string | null
   selectedNodeId?: string | null
   editingBlockId?: string | null
@@ -47,8 +34,6 @@ export interface Peer {
 }
 
 export interface PresenceState {
-  x?: number
-  y?: number
   focusNodeId?: string | null
   selectedNodeId?: string | null
   editingBlockId?: string | null
@@ -65,9 +50,7 @@ interface UseSpaceChannelOptions {
 export interface SpaceChannelApi {
   peers: Peer[]
   connected: boolean
-  /** Throttled. Safe to call from a pointer-move handler. */
-  publishCursor: (state: PresenceState) => void
-  /** Immediate. For changes worth reporting at once, like diving into a node. */
+  /** Reports a change to this client's own presence: what it has selected or focused. */
   publishPresence: (state: PresenceState) => void
 }
 
@@ -83,8 +66,6 @@ export function useSpaceChannel({
   // The latest presence this client has published, so a `hello` from a late joiner can be
   // answered with where we actually are rather than with an empty marker.
   const localState = useRef<PresenceState>({})
-  const lastCursorAt = useRef(0)
-  const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Held in a ref so that changing the handler does not tear down and rebuild the
   // subscription, which would make every re-render of the page a reconnect.
@@ -111,13 +92,13 @@ export function useSpaceChannel({
         received(message: RealtimeEnvelope) {
           if (message.sessionId === SESSION_ID) return
 
-          if (message.type === 'presence.here' || message.type === 'presence.cursor') {
+          if (message.type === 'presence.here' || message.type === 'presence.update') {
             mergePeer(message)
 
             // A newcomer's hello is answered so it learns about us. Answering an
             // *answer* would be an infinite exchange, so only `presence.here` replies.
             if (message.type === 'presence.here') {
-              channel.perform('cursor', localState.current)
+              channel.perform('presence', localState.current)
             }
             return
           }
@@ -153,7 +134,7 @@ export function useSpaceChannel({
 
     // Heartbeat. Doubles as the liveness signal peers age out against, so it is a
     // presence message rather than a dedicated ping: one message type, one code path.
-    const heartbeat = setInterval(() => channel.perform('cursor', localState.current), HEARTBEAT_MS)
+    const heartbeat = setInterval(() => channel.perform('presence', localState.current), HEARTBEAT_MS)
 
     const reaper = setInterval(() => {
       const cutoff = Date.now() - PEER_TTL_MS
@@ -166,7 +147,6 @@ export function useSpaceChannel({
     return () => {
       clearInterval(heartbeat)
       clearInterval(reaper)
-      if (cursorTimer.current) clearTimeout(cursorTimer.current)
       channel.unsubscribe()
       subscription.current = null
       setPeers({})
@@ -176,31 +156,10 @@ export function useSpaceChannel({
 
   const publishPresence = useCallback((state: PresenceState) => {
     localState.current = { ...localState.current, ...state }
-    subscription.current?.perform('cursor', localState.current)
-  }, [])
-
-  const publishCursor = useCallback((state: PresenceState) => {
-    localState.current = { ...localState.current, ...state }
-
-    const elapsed = Date.now() - lastCursorAt.current
-    if (elapsed >= CURSOR_THROTTLE_MS) {
-      lastCursorAt.current = Date.now()
-      subscription.current?.perform('cursor', localState.current)
-      return
-    }
-
-    // Trailing edge, so the final resting position of a pointer is always sent. Without
-    // it a cursor freezes wherever the last throttled frame happened to land.
-    if (cursorTimer.current) return
-
-    cursorTimer.current = setTimeout(() => {
-      cursorTimer.current = null
-      lastCursorAt.current = Date.now()
-      subscription.current?.perform('cursor', localState.current)
-    }, CURSOR_THROTTLE_MS - elapsed)
+    subscription.current?.perform('presence', localState.current)
   }, [])
 
   const roster = useMemo(() => Object.values(peers).sort((a, b) => a.actor.name.localeCompare(b.actor.name)), [peers])
 
-  return { peers: roster, connected, publishCursor, publishPresence }
+  return { peers: roster, connected, publishPresence }
 }

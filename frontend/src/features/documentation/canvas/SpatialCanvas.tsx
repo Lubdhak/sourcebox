@@ -4,7 +4,6 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
-  ViewportPortal,
   applyNodeChanges,
   type Edge,
   type Node as FlowNode,
@@ -27,7 +26,6 @@ import {
   type NodeCardData,
 } from '@/features/documentation/canvas/NodeCard'
 import type { Peer } from '@/features/documentation/collaboration/useSpaceChannel'
-import { collaboratorColor } from '@/features/documentation/collaboration/colors'
 import { isDisconnected } from '@/features/documentation/disconnected'
 import { readingOrder } from '@/features/documentation/readingOrder'
 import type { DocumentationNode, NodeParent, NodeRelationship, SpatialPosition } from '@/types'
@@ -264,7 +262,6 @@ export interface SpatialCanvasProps {
   onOpenNeighbor?: (node: DocumentationNode) => void
   /** Go to the level a containing node lives on. Navigation only: nothing is selected. */
   onGoUp?: (parent: NodeParent) => void
-  onPointerPosition?: (position: { x: number; y: number }) => void
 }
 
 export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(function SpatialCanvas({
@@ -295,7 +292,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
   onReparentNode,
   onOpenNeighbor,
   onGoUp,
-  onPointerPosition,
 }: SpatialCanvasProps, ref) {
   const instance = useRef<ReactFlowInstance<CanvasNode, Edge> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -605,30 +601,27 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     if (multiSelectedIds.size > 1 && selectedNodeId) onSelectNode(null)
   }, [multiSelectedIds, onSelectNode, selectedNodeId])
 
-  // Which collaborators are sitting on which node, so a card can say who is there. Built
-  // once per presence change rather than per card.
-  const editorsByNode = useMemo(() => {
-    const map = new Map<string, string[]>()
-
-    for (const peer of peers) {
-      const nodeId = peer.selectedNodeId
-      if (!nodeId) continue
-      map.set(nodeId, [...(map.get(nodeId) ?? []), peer.actor.name])
-    }
-
-    return map
-  }, [peers])
-
   /**
    * Everyone whose attention is on a node right now, counting the level below.
    *
-   * Wider than `editorsByNode` on purpose: a colleague who has dived *into* a node is
-   * reading it as surely as one who has its page open, and from out here they would
-   * otherwise vanish -- their level is not on screen, so nothing would show them at all.
-   * Both collapse onto the one card that is: the node they are in.
+   * Wide on purpose: a colleague who has dived *into* a node is reading it as surely as
+   * one who has its page open, and from out here they would otherwise vanish -- their
+   * level is not on screen, so nothing would show them at all. Both collapse onto the one
+   * card that is: the node they are in.
    *
-   * Deduplicated by session, because diving with the keyboard also selects on arrival,
-   * which would otherwise count one person twice.
+   * This is the card's *only* presence marker. Who has a node open for editing is told a
+   * finer-grained way, with faces rather than initials, in the inspector that opens for
+   * it -- see `usePageBody`'s `viewers`. Saying the same thing twice, once as a name on
+   * the canvas and once as a photo in the panel, taught the eye to check two places for
+   * one fact; now there is one place per distance, the count out here and the faces in
+   * there.
+   *
+   * Keyed by actor id rather than session, which folds together two kinds of double
+   * counting at once: diving with the keyboard also selects on arrival, so the same
+   * session's `selectedNodeId` and `focusNodeId` can name the same node, and the same
+   * person can have the node open in a second tab under a different session entirely.
+   * Either way, it is one person reading one node, and the map only has room for one
+   * entry to say so.
    */
   const readersByNode = useMemo(() => {
     const map = new Map<string, Map<string, string>>()
@@ -638,7 +631,7 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
         if (!nodeId) continue
 
         const readers = map.get(nodeId) ?? new Map<string, string>()
-        readers.set(peer.sessionId, peer.actor.name)
+        readers.set(peer.actor.id, peer.actor.name)
         map.set(nodeId, readers)
       }
     }
@@ -742,7 +735,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
           actions,
           linking: linkingFrom !== null && linkingFrom !== node.id,
           editable,
-          presentEditors: editorsByNode.get(node.id) ?? [],
           readers: [...(readersByNode.get(node.id)?.values() ?? [])],
           dropTarget: drop?.kind === 'node' && drop.nodeId === node.id,
           disconnected: isDisconnected(node.relationshipCount) && !connectedOnLevel.has(node.id),
@@ -792,7 +784,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
       cursorId,
       drop,
       editable,
-      editorsByNode,
       linkingFrom,
       neighbors,
       onOpenNeighbor,
@@ -1372,18 +1363,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     if (card?.dataset.id) setCursorId(card.dataset.id)
   }, [])
 
-  const handlePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!onPointerPosition || !instance.current) return
-
-      // Published in graph coordinates, not screen coordinates: everyone is looking at
-      // the same space through a different viewport, and a cursor at "400, 300 on my
-      // screen" means nothing on anyone else's.
-      onPointerPosition(instance.current.screenToFlowPosition({ x: event.clientX, y: event.clientY }))
-    },
-    [onPointerPosition],
-  )
-
   return (
     <div
       ref={containerRef}
@@ -1400,7 +1379,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
       onKeyDownCapture={handleKeyDown}
       onPointerDown={handlePointerDown}
       onFocus={handleFocus}
-      onPointerMove={handlePointerMove}
     >
       <ReactFlow<CanvasNode, Edge>
         nodes={flowNodes}
@@ -1486,19 +1464,6 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
           and nothing else on screen answers it.
         */}
         <MiniMap pannable zoomable ariaLabel="Graph overview" className="!bg-muted" />
-
-        {/*
-          Cursors are rendered inside the viewport portal so React Flow applies the pan
-          and zoom transform to them. Positioning them by hand would mean recomputing
-          every cursor on every scroll wheel tick.
-        */}
-        <ViewportPortal>
-          {peers
-            .filter((peer) => typeof peer.x === 'number' && typeof peer.y === 'number')
-            .map((peer) => (
-              <PeerCursor key={peer.sessionId} peer={peer} />
-            ))}
-        </ViewportPortal>
       </ReactFlow>
 
       {/*
@@ -1558,24 +1523,3 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
     </div>
   )
 })
-
-function PeerCursor({ peer }: { peer: Peer }) {
-  const color = collaboratorColor(peer.actor.colorSeed)
-
-  return (
-    <div
-      className="pointer-events-none absolute z-50 flex items-center gap-1"
-      style={{ transform: `translate(${peer.x ?? 0}px, ${peer.y ?? 0}px)` }}
-    >
-      <svg width="12" height="16" viewBox="0 0 12 16" aria-hidden className="drop-shadow-sm">
-        <path d="M0 0l12 6-5 1.5L4 14z" fill={color} />
-      </svg>
-      <span
-        className="rounded-xs px-1 py-0.5 text-[10px] font-medium text-white"
-        style={{ backgroundColor: color }}
-      >
-        {peer.actor.name}
-      </span>
-    </div>
-  )
-}

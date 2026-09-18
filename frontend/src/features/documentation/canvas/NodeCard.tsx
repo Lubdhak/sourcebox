@@ -41,15 +41,14 @@ export interface NodeCardData extends Record<string, unknown> {
    * card without them simply reads as a document.
    */
   editable: boolean
-  /** Names of collaborators who are on this node right now. */
-  presentEditors: string[]
   /**
    * Names of everyone reading this node right now, including inside it.
    *
-   * A superset of `presentEditors`: those are the people whose marker belongs *on* this
-   * card, while this is the audience figure -- the one number that says whether a node is
-   * being looked at at all, which on a map of hundreds is what tells you where the work
-   * is happening today.
+   * The card's whole answer to "is anyone looking at this" -- a count, not faces. Who
+   * they are, by name and photo, is one click away in the inspector this card opens: see
+   * `usePageBody`'s `viewers`. Two presence markers on one card taught the eye to check
+   * both; this is the one that belongs on a map of hundreds, where a number scans and a
+   * row of avatars does not.
    */
   readers: string[]
   /**
@@ -114,7 +113,6 @@ export const NodeCard = memo(function NodeCard({
     actions,
     linking,
     editable,
-    presentEditors,
     readers,
     dropTarget,
     disconnected,
@@ -370,23 +368,6 @@ export const NodeCard = memo(function NodeCard({
           <p className="line-clamp-3 text-[11px] leading-snug text-muted-foreground">{node.summary}</p>
         ) : null}
       </div>
-
-      {presentEditors.length > 0 ? (
-        <div
-          className="absolute -top-2 -right-1 flex -space-x-1"
-          aria-label={`${presentEditors.join(', ')} ${presentEditors.length === 1 ? 'is' : 'are'} here`}
-        >
-          {presentEditors.slice(0, 3).map((name) => (
-            <span
-              key={name}
-              title={name}
-              className="grid size-4 place-items-center rounded-full border border-background bg-brand-500 text-[8px] font-semibold text-white"
-            >
-              {name.charAt(0).toUpperCase()}
-            </span>
-          ))}
-        </div>
-      ) : null}
 
       {/*
         Revealed on hover and on keyboard focus, never on selection alone: a toolbar that

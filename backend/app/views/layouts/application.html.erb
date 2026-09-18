@@ -29,7 +29,19 @@
     <%= frontend_assets_tags %>
   </head>
 
-  <body class="h-full bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
+  <%#
+    No colour classes here on purpose. `application.css`'s own `body { @apply
+    bg-background text-foreground; }` already answers this, from the same design tokens
+    every component reads -- and it does so correctly for a dark mode this project
+    toggles by *class*, on demand, from the cube in the nav rail. A hardcoded
+    `dark:bg-slate-950` here answers a different question, "what does the OS prefer",
+    using Tailwind's default media-query dark variant rather than this project's
+    `@custom-variant dark (&:where(.dark, .dark *))` override -- and the two disagreeing
+    is exactly how a panel ends up light-mode grey text on a dark-mode background: the
+    class the user turned on took effect everywhere React renders, and this element,
+    styled before any of that runs, did not move with it.
+  %>
+  <body class="h-full antialiased">
     <%= yield %>
   </body>
 </html>
