@@ -36,7 +36,7 @@ the primary, queue, and cable databases.
 
 #### Vercel
 
-Create a project with root directory `sourcebox/frontend`. The committed
+Create a project with root directory `frontend`. The committed
 `frontend/vercel.json` runs the typecheck/build and exposes the manifest and assets
 with the CORS and cache headers required by Rails. Copy the resulting Vercel URL to
 Render's `ASSET_HOST`.

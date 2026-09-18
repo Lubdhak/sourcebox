@@ -2,7 +2,6 @@ services:
   - type: web
     name: sourcebox-backend
     runtime: docker
-    rootDir: sourcebox
     dockerfilePath: backend/Dockerfile
     dockerContext: backend
     dockerCommand: bin/rails server -b 0.0.0.0 -p 3000
@@ -48,7 +47,6 @@ services:
   - type: worker
     name: sourcebox-worker
     runtime: docker
-    rootDir: sourcebox
     dockerfilePath: backend/Dockerfile
     dockerContext: backend
     dockerCommand: bin/jobs
