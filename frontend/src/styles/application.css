@@ -288,6 +288,73 @@
   }
 
   /*
+   * A block that just changed because someone else's edit landed, not this session's own
+   * typing -- coloured as *that person*, the same colour their avatar and cursor already
+   * are (see collaboratorColor), so the flash answers "who" at the same glance it answers
+   * "something changed" rather than making a reader hunt the presence bar to find out.
+   * Fades to the ordinary text colour and background rather than staying, because "this
+   * just arrived" stops being true a few seconds after it does.
+   *
+   * Background and text both move, not text alone: a colour change in a couple of words
+   * of body copy is the kind of thing a reader's eye slides straight past, where a tinted
+   * block is the same thing `.block-highlight` already relies on for the same reason,
+   * just per-author instead of one fixed brand colour.
+   *
+   * The colour itself comes in as `--flash-color`, set inline per block at the moment it
+   * is applied -- see MarkdownBlock and the cursor overlay's remote-change decoration --
+   * because it names a specific collaborator, which no class selector can. The fallback
+   * exists only so a missing attribution (nobody currently marked as editing) still
+   * flashes something rather than silently not animating.
+   */
+  .remote-update-flash {
+    animation: remote-update-flash 3s ease-out;
+    border-radius: calc(var(--radius) * 0.5);
+  }
+
+  @keyframes remote-update-flash {
+    0%, 25% {
+      background: color-mix(in oklch, var(--flash-color, oklch(0.6 0.19 250)) 22%, transparent);
+      color: var(--flash-color, oklch(0.6 0.19 250));
+    }
+    100% {
+      background: transparent;
+      color: var(--foreground);
+    }
+  }
+
+  /*
+   * The name on the flash, the same way a cursor's caret carries one: a colour alone
+   * says "someone", and the point of attributing this at all is saying who. Positioned
+   * on the block rather than following a cursor, because a reader's flash has no caret
+   * to sit next to -- the block itself is the only anchor there is.
+   */
+  .remote-update-flash-name {
+    animation: remote-update-flash-name 3s ease-out;
+    background: var(--flash-color, oklch(0.6 0.19 250));
+    border-radius: calc(var(--radius) * 0.4) calc(var(--radius) * 0.4) calc(var(--radius) * 0.4) 0;
+    color: white;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    left: 0;
+    line-height: 1;
+    padding: 0.15em 0.5em;
+    pointer-events: none;
+    position: absolute;
+    top: -1.4em;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  @keyframes remote-update-flash-name {
+    0%, 70% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /*
    * A highlighted code block: a gutter of line numbers and the source beside it.
    *
    * Not nested inside `.documentation-markdown`, because a typed code block uses the same

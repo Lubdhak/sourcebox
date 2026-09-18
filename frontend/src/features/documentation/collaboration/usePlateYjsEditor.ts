@@ -4,13 +4,21 @@ import { YjsPlugin } from '@platejs/yjs/react'
 import { CursorEditor, YjsEditor } from '@slate-yjs/core'
 import * as Y from 'yjs'
 import { usePlateEditor, type PlateEditor } from 'platejs/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
   CursorOverlayPlugin,
   cursorDataFor,
 } from '@/features/documentation/collaboration/cursorOverlay'
+import {
+  createRemoteFlashPlugin,
+  REMOTE_FLASH_MS,
+  type RemoteFlashState,
+} from '@/features/documentation/collaboration/remoteFlash'
 import { DOCUMENTATION_PLUGINS } from '@/features/documentation/editor/plugins'
-import type { CollaborativeDocument } from '@/features/documentation/collaboration/useCollaborativeDocument'
+import {
+  activeRemoteAuthor,
+  type CollaborativeDocument,
+} from '@/features/documentation/collaboration/useCollaborativeDocument'
 import type { Collaborator } from '@/types'
 
 /**
@@ -125,7 +133,24 @@ export function usePlateYjsEditor({
    * seeded from coincidentally identical Markdown do not derive the same bytes. */
   nodeId: string
 }) {
-  const { doc, awareness, synced } = document
+  const { doc, awareness, synced, editors } = document
+
+  // Read inside `applyRemoteEvents` below, which is set up once at connect time but
+  // called on every remote change after that -- a plain closure over `editors` would see
+  // whoever was editing at connect time forever, not whoever actually sent this change.
+  const editorsRef = useRef(editors)
+  editorsRef.current = editors
+
+  // A plain mutable map, not React state -- see `RemoteFlashState`'s own comment for why.
+  // `useMemo` rather than `useRef` only so it survives a fast-refresh-style re-run of this
+  // hook's own body without losing the reference the plugin below was already given.
+  const flashState = useMemo<RemoteFlashState>(() => new Map(), [])
+
+  // Forces the plugin's `decorate` to run again after `flashState` changes -- the same
+  // problem `PageEditor`'s own `redecorate` (for cursors) solves, solved here instead of
+  // there because `flashState` is this hook's own state, not something worth exposing
+  // just to hand the trigger to a caller.
+  const [, forceRedecorate] = useReducer((tick: number) => tick + 1, 0)
 
   const editor = usePlateEditor({
     plugins: [
@@ -169,6 +194,7 @@ export function usePlateYjsEditor({
         },
       }),
       CursorOverlayPlugin,
+      createRemoteFlashPlugin(flashState),
     ],
     /*
       Initialise from stored Markdown so the editor is never blank when opened.
@@ -234,6 +260,51 @@ export function usePlateYjsEditor({
       */
       if (CursorEditor.isCursorEditor(yjsEditor)) {
         CursorEditor.sendCursorData(yjsEditor, cursorDataFor(collaborator))
+      }
+
+      /*
+        The remote-change flash: wraps the one function `withYjs`'s deep observer calls
+        for a remote update (never for a local one -- `handleYEvents` filters those out
+        before this is reached), so everything downstream of it already knows this
+        change came from someone else without asking.
+
+        Diffing `editor.children` before and after, by reference rather than by content,
+        is what finds which top-level blocks moved: Slate's own operations rebuild the
+        top-level array immutably, so a paragraph nobody touched is the same object
+        after the batch as before it, and one that changed is not.
+      */
+      const original = yjsEditor.applyRemoteEvents
+      yjsEditor.applyRemoteEvents = (events, origin) => {
+        const before = editor.children
+        original(events, origin)
+        const after = editor.children
+
+        const author = activeRemoteAuthor(editorsRef.current)
+        if (!author) return // Nothing to attribute the flash to; nothing to flash.
+
+        const until = Date.now() + REMOTE_FLASH_MS
+        const maxLength = Math.max(before.length, after.length)
+        let changed = false
+
+        for (let index = 0; index < maxLength; index += 1) {
+          if (before[index] === after[index]) continue
+          flashState.set(index, { until, color: author.color, name: author.name })
+          changed = true
+        }
+
+        if (!changed) return
+
+        forceRedecorate()
+        window.setTimeout(() => {
+          // Only ever removes entries this call itself added: a block that changed
+          // again in the meantime already has a *later* `until` from that newer call,
+          // and this timeout deleting the entry out from under it would cut the second
+          // flash short instead of letting its own timer end it.
+          for (const [index, flash] of flashState) {
+            if (flash.until <= until) flashState.delete(index)
+          }
+          forceRedecorate()
+        }, REMOTE_FLASH_MS)
       }
 
       setReady(true)

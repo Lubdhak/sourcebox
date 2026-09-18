@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { cable, SESSION_ID, subscriptionId, type RealtimeEnvelope } from '@/lib/cable'
+import { collaboratorColor } from '@/features/documentation/collaboration/colors'
+import { dedupeByActor } from '@/features/documentation/collaboration/dedupeByActor'
 import { logger } from '@/lib/logger'
 import type { Collaborator } from '@/features/documentation/collaboration/useSpaceChannel'
 
@@ -49,6 +51,30 @@ import type { Collaborator } from '@/features/documentation/collaboration/useSpa
  * `PLATE_CONTENT_KEY` in usePlateYjsEditor, owned by @platejs/yjs.
  */
 export const PAGE_KEY = 'page'
+
+/**
+ * Who a change that just arrived by websocket gets attributed to, name and colour both --
+ * the same two facts a cursor label already carries, because a flash with no cursor
+ * nearby (the reader's view has none) has nowhere else to put them.
+ */
+export interface RemoteAuthor {
+  name: string
+  color: string
+}
+
+/**
+ * Whoever, other than this session, is right now marked as editing this page -- the one
+ * fact both the rich editor's remote-change flash and the reader's live-derive flash need
+ * attributed the same way, so this is the one place that decides it.
+ *
+ * The first match on a tie (two people editing at once) rather than a blend of both: a
+ * flash split between two collaborators' colours would not clearly be either one's, and
+ * a name badge can only hold one name anyway.
+ */
+export function activeRemoteAuthor(editors: TextPeer[]): RemoteAuthor | null {
+  const active = dedupeByActor(editors.filter((peer) => peer.editing === PAGE_KEY))[0]
+  return active ? { name: active.actor.name, color: collaboratorColor(active.actor.colorSeed) } : null
+}
 
 export interface TextPeer {
   sessionId: string

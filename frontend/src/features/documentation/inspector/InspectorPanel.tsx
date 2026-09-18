@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkdownBlock } from '@/features/documentation/blocks/MarkdownBlock'
-import { useCollaborativeDocument } from '@/features/documentation/collaboration/useCollaborativeDocument'
+import {
+  useCollaborativeDocument,
+  type RemoteAuthor,
+} from '@/features/documentation/collaboration/useCollaborativeDocument'
 import { PersonAvatar } from '@/features/documentation/collaboration/PersonAvatar'
 import {
   DISCONNECTED_HINT,
@@ -226,6 +229,7 @@ export function InspectorPanel({
           <PageView
             nodeId={nodeId}
             markdown={page.value}
+            remoteAuthor={page.remoteAuthor}
             editable={editable}
             highlightBlockIndex={initialBlockIndex}
             onSelectNode={onSelectNode}
@@ -305,6 +309,7 @@ export function InspectorPanel({
 function PageView({
   nodeId,
   markdown,
+  remoteAuthor,
   editable,
   highlightBlockIndex = null,
   onSelectNode,
@@ -312,6 +317,9 @@ function PageView({
 }: {
   nodeId: string
   markdown: string
+  /** See `usePageBody`'s field of the same name -- who a block that just changed gets
+   * attributed to. */
+  remoteAuthor: RemoteAuthor | null
   editable: boolean
   /** Land on and flash this paragraph once the page has rendered. See `Show.tsx`'s
    * `linkedBlock` for where the number comes from. */
@@ -379,7 +387,12 @@ function PageView({
     // click, as far as the DOM is concerned -- swapped the text for an editing surface
     // mid-selection. Reading is the common case; editing starts from the Edit button.
     <div ref={container} className="px-6 py-4">
-      <MarkdownBlock nodeId={nodeId} data={{ markdown }} onNavigateToNode={onSelectNode} />
+      <MarkdownBlock
+        nodeId={nodeId}
+        data={{ markdown }}
+        remoteAuthor={remoteAuthor}
+        onNavigateToNode={onSelectNode}
+      />
     </div>
   )
 }

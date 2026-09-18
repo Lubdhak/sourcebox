@@ -4,8 +4,10 @@ import { blocksToMarkdown, isSingleMarkdownPage } from '@/features/documentation
 import { dedupeByActor } from '@/features/documentation/collaboration/dedupeByActor'
 import { deriveMarkdownFromDoc } from '@/features/documentation/collaboration/liveMarkdown'
 import {
+  activeRemoteAuthor,
   PAGE_KEY,
   type CollaborativeDocument,
+  type RemoteAuthor,
 } from '@/features/documentation/collaboration/useCollaborativeDocument'
 import { PLATE_CONTENT_KEY } from '@/features/documentation/collaboration/usePlateYjsEditor'
 import type { Collaborator, ContentBlock } from '@/types'
@@ -91,6 +93,18 @@ export interface PageBody {
    * which is true the moment someone has the page open at all.
    */
   viewers: Collaborator[]
+  /**
+   * Whoever is currently typing into this page, other than this session -- name and
+   * colour, the same two facts their avatar and cursor already carry (see
+   * `activeRemoteAuthor`), for `MarkdownBlock`'s flash on a block that just changed to
+   * attribute it with.
+   *
+   * Null when nobody else is marked as editing right now, which is also correct for the
+   * moment `PageEditor`'s own writes echo back through this same live-derive path: this
+   * session's own name is never worth attributing a flash to, because a flash marks a
+   * change arriving from elsewhere, and this session already saw itself make it.
+   */
+  remoteAuthor: RemoteAuthor | null
   /**
    * Set when saving will change how the page is stored, so the author is told
    * before it happens rather than noticing afterwards.
@@ -274,6 +288,8 @@ export function usePageBody({
 
   const viewers = useMemo(() => dedupeByActor(editors).map((peer) => peer.actor), [editors])
 
+  const remoteAuthor = useMemo(() => activeRemoteAuthor(editors), [editors])
+
   return {
     document,
     value: liveValue,
@@ -282,6 +298,7 @@ export function usePageBody({
     saving,
     editorNames,
     viewers,
+    remoteAuthor,
     conversionNotice: isSingleMarkdownPage(blocks)
       ? null
       : 'Tables and snippets on this page are saved as Markdown.',

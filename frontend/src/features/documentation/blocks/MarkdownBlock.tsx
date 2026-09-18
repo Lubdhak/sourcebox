@@ -1,7 +1,16 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { renderMarkdown } from '@/features/documentation/blocks/renderMarkdown'
+import type { RemoteAuthor } from '@/features/documentation/collaboration/useCollaborativeDocument'
 import { mentionNodeId } from '@/features/documentation/inspector/mentions'
 import type { ContentBlockData } from '@/types'
+
+/** How long the flash CSS animation runs -- see `.remote-update-flash` and
+ * `.remote-update-flash-name` in application.css, which this matches exactly so the
+ * name badge disappears at the same moment the colour finishes fading rather than one
+ * lingering after the other. The classes are removed after this so a later, unrelated
+ * re-render does not find them still attached to a wrapper `dangerouslySetInnerHTML`
+ * happens to reuse. */
+const REMOTE_FLASH_MS = 3_000
 
 /**
  * Lucide's `link-2` glyph, redrawn by hand.
@@ -30,6 +39,7 @@ const LINK_ICON_SVG =
 export function MarkdownBlock({
   nodeId,
   data,
+  remoteAuthor = null,
   onNavigateToNode,
 }: {
   /**
@@ -40,12 +50,28 @@ export function MarkdownBlock({
    */
   nodeId?: string
   data: ContentBlockData
+  /**
+   * See `usePageBody`'s field of the same name. Read only to attribute the flash below --
+   * omitted (null) wherever a caller has no collaborative session to ask, which also
+   * correctly never flashes anything, since there is then no "someone else" a change
+   * could be attributed to.
+   */
+  remoteAuthor?: RemoteAuthor | null
   /** Given, mentions of other nodes become navigation instead of dead fragment links. */
   onNavigateToNode?: (nodeId: string) => void
 }) {
   const source = typeof data.markdown === 'string' ? data.markdown : ''
 
   const html = useMemo(() => renderMarkdown(source), [source])
+
+  /*
+   * Text content per top-level block, as of the last time the ref callback ran -- null
+   * until then, which is what keeps the very first render from flashing every block on
+   * the page the instant it opens. Compared by position rather than by any sturdier
+   * identity for the same reason `data-block-index` already is: nothing sturdier exists
+   * for a block that is Markdown text, not a row with an id.
+   */
+  const previousBlockText = useRef<string[] | null>(null)
 
   /*
    * Mentions are intercepted rather than followed.
@@ -124,6 +150,54 @@ export function MarkdownBlock({
             wrapper.appendChild(copyLinkButton(nodeId, index))
           }
         }
+
+        /*
+         * Flashes whichever blocks' text differs from the last pass -- which, on this
+         * component, can only mean a collaborator's edit just arrived: a reader has no
+         * editor of their own open here to have caused it (see usePageBody's
+         * `remoteAuthor` for the other half of that reasoning). Read after the wrapping
+         * above so a block's own text, not the button just added beside it, is what gets
+         * compared and coloured.
+         */
+        const blocks = [...element.children] as HTMLElement[]
+        const currentText = blocks.map((block) => block.textContent ?? '')
+
+        if (previousBlockText.current) {
+          const previous = previousBlockText.current
+          blocks.forEach((block, index) => {
+            if (previous[index] === undefined || previous[index] === currentText[index]) return
+
+            if (remoteAuthor) block.style.setProperty('--flash-color', remoteAuthor.color)
+            else block.style.removeProperty('--flash-color')
+
+            // The name badge is positioned absolutely against the block, which needs a
+            // positioning context of its own to land against rather than the nearest
+            // one up the tree (typically the whole panel). `nodeId`'s wrapper already
+            // has one (`relative`, added above); anything else gets it here instead of
+            // silently mispositioning the one time this runs without a wrapper.
+            if (getComputedStyle(block).position === 'static') block.style.position = 'relative'
+
+            // Force a reflow before re-adding the classes, so a block that changes again
+            // before the previous flash finished restarts the animation instead of the
+            // browser treating "already has this class" as nothing to redo.
+            block.classList.remove('remote-update-flash')
+            void block.offsetWidth
+            block.classList.add('remote-update-flash')
+            window.setTimeout(() => block.classList.remove('remote-update-flash'), REMOTE_FLASH_MS)
+
+            const existingBadge = block.querySelector<HTMLElement>(':scope > .remote-update-flash-name')
+            existingBadge?.remove()
+            if (remoteAuthor) {
+              const badge = document.createElement('span')
+              badge.className = 'remote-update-flash-name'
+              badge.textContent = remoteAuthor.name
+              block.appendChild(badge)
+              window.setTimeout(() => badge.remove(), REMOTE_FLASH_MS)
+            }
+          })
+        }
+
+        previousBlockText.current = currentText
       }}
     />
   )
