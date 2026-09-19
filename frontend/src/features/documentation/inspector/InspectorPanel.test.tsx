@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InspectorPanel } from '@/features/documentation/inspector/InspectorPanel'
 import type { Collaborator, ContentBlock } from '@/types'
 
@@ -118,6 +118,14 @@ function renderPanel(props: Partial<Parameters<typeof InspectorPanel>[0]> = {}) 
 }
 
 describe('InspectorPanel', () => {
+  beforeAll(() => {
+    // jsdom has selections but no layout for the lazy editor's floating toolbar.
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => new DOMRect(),
+    })
+  })
+
   beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- narrow test double
     vi.mocked(api.fetchNodeDetail).mockResolvedValue(detail() as any)
@@ -125,12 +133,12 @@ describe('InspectorPanel', () => {
 
   afterEach(() => vi.clearAllMocks())
 
-  it('reads as a page: a title, two properties, the prose, and the graph below it', async () => {
+  it('reads as a page: a title, summary, prose, and the graph below it', async () => {
     renderPanel()
 
     expect(await screen.findByRole('heading', { name: 'Payment Service' })).toBeDefined()
     expect(screen.getByText('Card capture and refunds.')).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Type' }).textContent).toContain('service')
+    expect(screen.queryByRole('button', { name: 'Type' })).toBeNull()
 
     // Rendered, not shown as source.
     expect(screen.getByText('capture').tagName).toBe('STRONG')

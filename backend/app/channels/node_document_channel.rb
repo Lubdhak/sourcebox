@@ -29,7 +29,7 @@ class NodeDocumentChannel < ApplicationCable::Channel
     # The joiner gets the state directly rather than through the stream: it is addressed
     # to them, and broadcasting a full document to everyone whenever somebody opens a
     # node would make an editing session quadratic in the number of editors.
-    transmit({ type: "sync" }.merge(@document.sync_payload))
+    transmit_sync
   end
 
   # Tells everyone else this session's face should come off their roster.
@@ -68,6 +68,7 @@ class NodeDocumentChannel < ApplicationCable::Channel
       sessionId: session_id,
       actorId: current_user.id.to_s,
     })
+
   rescue ActiveRecord::RecordInvalid => e
     # An oversized or malformed update is the sender's problem and must not take the
     # channel down for everyone else on it.
@@ -112,6 +113,11 @@ class NodeDocumentChannel < ApplicationCable::Channel
   # by typing into it.
   def compact(data)
     return if @document.nil?
+    # A broadcast watermark is not proof of receipt: streams can be missed or reordered.
+    # Only a complete, directly transmitted sync authorizes truncation at this sequence.
+    unless @checkpoint_seq && data["throughSeq"].to_i == @checkpoint_seq
+      return transmit({ type: "rejected", reason: "Compaction requires a complete sync checkpoint." })
+    end
 
     state = decode(data["state"])
     return if state.blank?
@@ -119,7 +125,28 @@ class NodeDocumentChannel < ApplicationCable::Channel
     @document.compact!(state, data["throughSeq"])
   end
 
+  def sync(data)
+    return if @document.nil?
+
+    after_seq = data["afterSeq"]
+    if after_seq && after_seq.to_i != @sync_seq
+      return transmit({ type: "rejected", reason: "Sync cursor does not match the previous page." })
+    end
+
+    transmit_sync(after_seq: after_seq&.to_i)
+  end
+
   private
+
+  def transmit_sync(after_seq: nil)
+    payload = @document.sync_payload(
+      after_seq: after_seq,
+      limit: params[:sync_pages] ? CrdtDocument::SYNC_BATCH_SIZE : nil
+    )
+    @sync_seq = payload[:seq]
+    @checkpoint_seq = payload[:syncComplete] ? payload[:seq] : nil
+    transmit({ type: "sync" }.merge(payload))
+  end
 
   def session_id
     params[:session_id].to_s.first(64)

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SpatialCanvas } from '@/features/documentation/canvas/SpatialCanvas'
+import { SpatialCanvas, reconcileCanvasNodes } from '@/features/documentation/canvas/SpatialCanvas'
 import type { DocumentationNode } from '@/types'
 
 function node(id: string, x: number, y: number): DocumentationNode {
@@ -16,6 +16,53 @@ function node(id: string, x: number, y: number): DocumentationNode {
 }
 
 const NODES = [node('c', 0, 400), node('b', 300, 0), node('a', 0, 12)]
+
+describe('canvas reconciliation', () => {
+  const actions = {
+    onDive: vi.fn(), onInspect: vi.fn(), onDelete: vi.fn(), onStartLink: vi.fn(),
+    onRename: vi.fn(), onGoUp: vi.fn(), onDuplicate: vi.fn(),
+  }
+
+  function cards() {
+    return NODES.map((record) => ({
+      id: record.id,
+      type: 'documentation' as const,
+      position: { x: record.position.x, y: record.position.y },
+      data: {
+        node: record, readers: [], actions, blockCount: null, linking: false,
+        editable: true, dropTarget: false, disconnected: false, cursor: false,
+      },
+      selected: false,
+    }))
+  }
+
+  it('reuses the array and card data when nothing visible changed', () => {
+    const current = cards()
+    expect(reconcileCanvasNodes(current, cards(), false)).toBe(current)
+  })
+
+  it('changes only the selected card and preserves the other objects', () => {
+    const current = cards()
+    const incoming = cards()
+    incoming[1]!.selected = true
+    const next = reconcileCanvasNodes(current, incoming, false)
+    expect(next[0]).toBe(current[0])
+    expect(next[1]).not.toBe(current[1])
+    expect(next[1]?.selected).toBe(true)
+    expect(next[2]).toBe(current[2])
+  })
+
+  it('preserves local drag positions measurements and area selection', () => {
+    const current = cards().map((card) => ({
+      ...card,
+      position: { x: 50, y: 80 },
+      measured: { width: 240, height: 120 },
+      dragging: true,
+      selected: true,
+    }))
+    expect(reconcileCanvasNodes(current, cards(), true)).toBe(current)
+  })
+})
 
 function setup(overrides: Partial<React.ComponentProps<typeof SpatialCanvas>> = {}) {
   const props = {

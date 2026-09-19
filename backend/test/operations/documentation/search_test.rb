@@ -72,6 +72,25 @@ class Documentation::SearchTest < ActiveSupport::TestCase
     assert_operator search("widget", limit: 1_000).size, :<=, Documentation::Search::MAX_RESULTS
   end
 
+  test "loads only one matching snippet block per result in document order" do
+    first = create_block(node: @payments, data: { "text" => "First widget note" })
+    12.times { create_block(node: @payments, data: { "text" => "Later widget note" }) }
+    create_block(node: @orders, data: { "text" => "Order widget note" })
+    instantiated = 0
+    counter = lambda do |event|
+      instantiated += event.payload[:record_count] if event.payload[:class_name] == "ContentBlock"
+    end
+
+    results = nil
+    ActiveSupport::Notifications.subscribed(counter, "instantiation.active_record") do
+      results = search("widget")
+    end
+
+    assert_equal 2, results.size
+    assert_equal 2, instantiated
+    assert_equal first.preview, results.find { |result| result.node.id == @payments.id }.snippet
+  end
+
   private
 
   def search(query, limit: 25)

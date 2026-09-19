@@ -2527,14 +2527,15 @@ else
     space.update!(slug: SEED_SPACE_SLUG)
   end
 
-  nodes_by_title = {}
+  nodes_by_title = space.nodes.where(title: SEED_NODES.map { |attributes| attributes.fetch(:title) })
+                        .order(id: :desc).index_by(&:title)
 
   SEED_NODES.each do |attributes|
     title = attributes.fetch(:title)
     depth = SEED_DEPTHS.fetch(title)
     x, y = SEED_POSITIONS.fetch(title)
 
-    node = space.nodes.find_or_initialize_by(title: title)
+    node = nodes_by_title[title] || space.nodes.build(title: title)
     node.assign_attributes(
       x: x,
       y: y,
@@ -2552,6 +2553,9 @@ else
   SEED_NODES.each do |attributes|
     node = nodes_by_title.fetch(attributes.fetch(:title))
     blocks = attributes.fetch(:blocks, [])
+    # Only this fixture's positions, one node at a time: loading every page at once
+    # would exchange database round trips for a large startup memory spike.
+    existing_blocks = node.content_blocks.where(position: 0...blocks.size).index_by(&:position)
 
     blocks.each_with_index do |block_attributes, position|
       data = block_attributes.fetch(:data)
@@ -2560,7 +2564,7 @@ else
         data = data.except("node_title").merge("nodeId" => nodes_by_title.fetch(referenced_title).id.to_s)
       end
 
-      block = node.content_blocks.find_or_initialize_by(position: position)
+      block = existing_blocks[position] || node.content_blocks.build(position: position)
       block.assign_attributes(block_type: block_attributes.fetch(:block_type), data: data)
       block.save!
     end
@@ -2571,9 +2575,14 @@ else
     node.content_blocks.where("position >= ?", blocks.size).destroy_all
   end
 
+  node_ids = nodes_by_title.values.map(&:id)
+  existing_relationships = space.node_relationships.where(source_node_id: node_ids, target_node_id: node_ids)
+                                .pluck(:source_node_id, :relationship_type, :target_node_id).to_set
+
   SEED_RELATIONSHIPS.each do |(source_title, relationship_type, target_title)|
     source = nodes_by_title.fetch(source_title)
     target = nodes_by_title.fetch(target_title)
+    next if existing_relationships.include?([ source.id, relationship_type, target.id ])
 
     NodeRelationship.find_or_create_by!(
       source_node: source,

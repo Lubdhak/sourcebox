@@ -93,16 +93,16 @@ module Documentation
         .select(:node_id)
     end
 
-    # The best-ranked matching block per node, rendered as plain text. `ts_headline`
+    # The first matching block in document order, rendered as plain text. `ts_headline`
     # would mark up the matching terms, but it re-parses the document per row and the
     # frontend highlights client-side anyway.
     def snippets_for(node_ids)
       ContentBlock
         .where(node_id: node_ids)
         .matching(@query)
-        .ordered
-        .group_by(&:node_id)
-        .transform_values { |blocks| blocks.first.preview }
+        .select("DISTINCT ON (node_id) node_id, block_type, data")
+        .order(:node_id, :position)
+        .to_h { |block| [ block.node_id, block.preview ] }
     end
   end
 end

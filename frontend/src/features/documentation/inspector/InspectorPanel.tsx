@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, ChevronDown, Link2, Pencil, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkdownBlock } from '@/features/documentation/blocks/MarkdownBlock'
@@ -15,11 +15,43 @@ import {
   isDisconnected,
 } from '@/features/documentation/disconnected'
 import * as api from '@/features/documentation/graphql'
-import { PageEditor, type MentionCandidate } from '@/features/documentation/inspector/PageEditor'
+import type { MentionCandidate } from '@/features/documentation/inspector/PageEditor'
 import { useNodeDetail } from '@/features/documentation/inspector/useNodeDetail'
 import { usePageBody } from '@/features/documentation/inspector/usePageBody'
 import { cn } from '@/lib/utils'
+import { logger } from '@/lib/logger'
 import type { Collaborator, DocumentationNode, NodeRelationship } from '@/types'
+
+const PageEditor = lazy(() =>
+  import('@/features/documentation/inspector/PageEditor').then((module) => ({ default: module.PageEditor })),
+)
+
+class EditorBoundary extends Component<{ children: ReactNode; onClose: () => void }, { failed: boolean }> {
+  override state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo) {
+    logger.error('frontend.editor_load_failed', {
+      errorMessage: error.message,
+      componentStack: info.componentStack,
+    })
+  }
+
+  override render() {
+    if (!this.state.failed) return this.props.children
+
+    return (
+      <div role="alert" className="flex-1 space-y-3 p-6">
+        <p className="text-sm">The editor could not be opened. You can keep reading or reload to try again.</p>
+        <Button variant="outline" onClick={this.props.onClose}>Back to page</Button>
+        <Button variant="ghost" onClick={() => window.location.reload()}>Reload page</Button>
+      </div>
+    )
+  }
+}
 
 /**
  * A node, as a page.
@@ -216,14 +248,24 @@ export function InspectorPanel({
       {error ? <Banner message={error} onDismiss={dismissError} /> : null}
 
       {editing ? (
-        <PageEditor
-          page={page}
-          candidates={candidates}
-          collaborator={collaborator}
-          nodeId={nodeId}
-          onSearchMentions={searchMentions}
-          onDone={() => setEditing(false)}
-        />
+        <EditorBoundary onClose={() => setEditing(false)}>
+          <Suspense fallback={
+            <div className="flex-1 space-y-3 p-6">
+              <p role="status" className="text-sm text-muted-foreground">Loading editor…</p>
+              <Skeleton className="h-40 w-full" />
+              <Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+            </div>
+          }>
+            <PageEditor
+              page={page}
+              candidates={candidates}
+              collaborator={collaborator}
+              nodeId={nodeId}
+              onSearchMentions={searchMentions}
+              onDone={() => setEditing(false)}
+            />
+          </Suspense>
+        </EditorBoundary>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <PageView

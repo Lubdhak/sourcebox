@@ -107,6 +107,8 @@ interface SyncMessage extends RealtimeEnvelope {
   updates?: string[]
   seq?: number
   compactionNeeded?: boolean
+  compactionThreshold?: number
+  syncComplete?: boolean
   update?: string
   state?: { editing?: string | null } | null
   actor?: Collaborator
@@ -145,7 +147,6 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
   const [editors, setEditors] = useState<Record<string, TextPeer>>({})
 
   const subscription = useRef<{ perform: (action: string, data?: object) => void; unsubscribe: () => void } | null>(null)
-  const highestSeq = useRef(0)
   // What this client would say if asked right now. `announceEditing` writes it;
   // `received` reads it when answering a newcomer, so the answer is never stale by more
   // than the time between a focus change and the next render.
@@ -162,6 +163,35 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
     if (!nodeId || !enabled) return
 
     let disposed = false
+    let online = false
+    let syncing = true
+    let updatesSinceSync = 0
+    let compactionThreshold = 300
+    let cursorTimer: ReturnType<typeof setTimeout> | undefined
+    const pendingCursors = new Set<number>()
+
+    function clearCursor() {
+      clearTimeout(cursorTimer)
+      cursorTimer = undefined
+      pendingCursors.clear()
+    }
+
+    function queueCursor(clientIds: number[]) {
+      if (!online || disposed) return
+      for (const clientId of clientIds) pendingCursors.add(clientId)
+      if (cursorTimer !== undefined) return
+
+      cursorTimer = setTimeout(() => {
+        cursorTimer = undefined
+        if (!online || disposed) return
+        // Encode at send time, not per selection event: only the latest ephemeral
+        // state matters. Durable document updates deliberately remain immediate.
+        channel.perform('cursor', {
+          update: toBase64(encodeAwarenessUpdate(awareness, [...pendingCursors])),
+        })
+        pendingCursors.clear()
+      }, 50)
+    }
 
     // Every sessionId this client has already heard from, on this document. Local to the
     // subscription rather than a ref: it describes what *this* channel connection knows,
@@ -183,16 +213,26 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
     const channel = cable().subscriptions.create(
       // The nonce is what keeps a remount from unsubscribing the subscription that
       // replaced it. See `subscriptionId`.
-      { channel: 'NodeDocumentChannel', node_id: nodeId, session_id: SESSION_ID, subscription_id: subscriptionId() },
+      { channel: 'NodeDocumentChannel', node_id: nodeId, session_id: SESSION_ID, subscription_id: subscriptionId(), sync_pages: true },
       {
         connected() {
+          if (disposed) return
+          online = true
           setConnected(true)
         },
         disconnected() {
+          online = false
+          syncing = true
+          clearCursor()
           setConnected(false)
+          setSynced(false)
         },
         rejected() {
+          online = false
+          syncing = true
+          clearCursor()
           setConnected(false)
+          setSynced(false)
           logger.warn('frontend.node_document_rejected', { nodeId })
         },
         received(message: SyncMessage) {
@@ -202,13 +242,20 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
             case 'sync':
               applySync(message)
               break
-            case 'update':
-              if (message.sessionId === SESSION_ID || !message.update) return
+            case 'update': {
+              if (!message.update) return
               // `origin` marks this as remote so the observer below does not echo it
               // straight back to the server, which would loop forever.
-              Y.applyUpdate(doc, toBytes(message.update), 'remote')
-              if (message.seq) highestSeq.current = Math.max(highestSeq.current, message.seq)
+              if (message.sessionId !== SESSION_ID) Y.applyUpdate(doc, toBytes(message.update), 'remote')
+              updatesSinceSync += 1
+              if (online && !syncing && updatesSinceSync >= compactionThreshold && message.sessionId === SESSION_ID) {
+                syncing = true
+                // Only an active writer requests a checkpoint. The full sync, not a
+                // broadcast watermark, proves which updates the snapshot will cover.
+                channel.perform('sync')
+              }
               break
+            }
             case 'awareness': {
               if (message.sessionId === SESSION_ID || !message.actor) return
               const sessionId = String(message.sessionId)
@@ -271,15 +318,23 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
         for (const update of message.updates ?? []) Y.applyUpdate(doc, toBytes(update), 'remote')
       }, 'remote')
 
-      highestSeq.current = message.seq ?? 0
+      if (message.syncComplete === false) {
+        syncing = true
+        channel.perform('sync', { afterSeq: message.seq })
+        return
+      }
+
+      syncing = false
+      updatesSinceSync = 0
+      compactionThreshold = message.compactionThreshold ?? compactionThreshold
       setSynced(true)
 
       // The log has grown long enough that replaying it is the slow part of joining.
       // This client has just merged all of it, so it is in a position to say so.
-      if (message.compactionNeeded && highestSeq.current > 0) {
+      if (message.compactionNeeded && message.seq && message.seq > 0) {
         channel.perform('compact', {
           state: toBase64(Y.encodeStateAsUpdate(doc)),
-          throughSeq: highestSeq.current,
+          throughSeq: message.seq,
         })
       }
 
@@ -307,9 +362,7 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
         `onAwarenessChange` recognise us as new and answer. Our real cursor state, once
         there is one, goes out through that same listener the moment it is set.
       */
-      channel.perform('cursor', {
-        update: toBase64(encodeAwarenessUpdate(awareness, [awareness.clientID])),
-      })
+      queueCursor([awareness.clientID])
     }
 
     // Local edits out. Filtering on origin is what separates "the user typed" from "we
@@ -343,16 +396,14 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
         if (newClients.length === 0) return
 
         for (const clientId of newClients) answeredClients.add(clientId)
-        channel.perform('cursor', {
-          update: toBase64(encodeAwarenessUpdate(awareness, [awareness.clientID])),
-        })
+        queueCursor([awareness.clientID])
         return
       }
 
       const changedClients = [...changes.added, ...changes.updated, ...changes.removed]
       if (changedClients.length === 0) return
 
-      channel.perform('cursor', { update: toBase64(encodeAwarenessUpdate(awareness, changedClients)) })
+      queueCursor(changedClients)
     }
 
     doc.on('update', onUpdate)
@@ -361,6 +412,8 @@ export function useCollaborativeDocument(nodeId: string | null, enabled = true):
 
     return () => {
       disposed = true
+      online = false
+      clearCursor()
       doc.off('update', onUpdate)
       awareness.off('update', onAwarenessChange)
       channel.unsubscribe()

@@ -13,12 +13,11 @@ module Loaders
   # property that matters -- unbatched this would be two COUNTs per card.
   class RelationshipCountLoader < GraphQL::Dataloader::Source
     def fetch(node_ids)
-      outgoing = NodeRelationship.where(source_node_id: node_ids).group(:source_node_id).count
-      incoming = NodeRelationship.where(target_node_id: node_ids).group(:target_node_id).count
+      counts = Documentation::WireFormat.relationship_counts(node_ids)
 
       # `fetch(id, 0)` rather than `[id]`: a node connected to nothing has no row in
       # either grouped result, and the loader must return a value per key in key order.
-      node_ids.map { |id| outgoing.fetch(id, 0) + incoming.fetch(id, 0) }
+      node_ids.map { |id| counts.fetch(id, 0) }
     end
   end
 end

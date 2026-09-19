@@ -159,7 +159,7 @@ export default function DocumentationSpaceShow({
       publishPresence({ focusNodeId: node.parents?.[0]?.id ?? null, selectedNodeId: null })
     }
   },
-  [graph, history, publishPresence],
+  [graph.addNode, graph.focusNodeId, history.reset, publishPresence],
 )
 
   const scatteredPosition = useCallback((): SpatialPosition => {
@@ -212,7 +212,7 @@ export default function DocumentationSpaceShow({
       )
       setPendingConnection(null)
     },
-    [graph, pendingConnection],
+    [graph.connectNodes, pendingConnection],
   )
 
   // Selection and focus are broadcast immediately rather than with the throttled cursor,
@@ -226,7 +226,7 @@ export default function DocumentationSpaceShow({
       graph.selectNode(nodeId)
       publishPresence({ selectedNodeId: nodeId })
     },
-    [graph, history, publishPresence],
+    [graph.selectNode, history.reset, publishPresence],
   )
 
   /** Following a link inside the panel. One hop deeper. */
@@ -248,7 +248,7 @@ export default function DocumentationSpaceShow({
       graph.selectNode(nodeId)
       publishPresence({ selectedNodeId: nodeId })
     },
-    [graph, history, publishPresence],
+    [graph.selectedNodeId, graph.nodes, graph.selectNode, history.follow, publishPresence],
   )
 
   const goBack = useCallback(() => {
@@ -257,7 +257,7 @@ export default function DocumentationSpaceShow({
 
     graph.selectNode(previous.id)
     publishPresence({ selectedNodeId: previous.id })
-  }, [graph, history, publishPresence])
+  }, [graph.selectNode, history.pop, publishPresence])
 
   const dive = useCallback(
     (nodeId: string) => {
@@ -265,7 +265,7 @@ export default function DocumentationSpaceShow({
       void graph.dive(nodeId)
       publishPresence({ focusNodeId: nodeId, selectedNodeId: null })
     },
-    [graph, history, publishPresence],
+    [graph.dive, history.reset, publishPresence],
   )
 
   /**
@@ -287,7 +287,7 @@ export default function DocumentationSpaceShow({
         publishPresence({ focusNodeId: parentNodeId, selectedNodeId: node.id })
       })
     },
-    [graph, history, publishPresence],
+    [graph.focusOn, graph.selectNode, history.reset, publishPresence],
   )
 
   /**
@@ -305,7 +305,7 @@ export default function DocumentationSpaceShow({
       void graph.focusOn(parent.parentNodeId ?? null)
       publishPresence({ focusNodeId: parent.parentNodeId ?? null, selectedNodeId: null })
     },
-    [graph, history, publishPresence],
+    [graph.focusOn, history.reset, publishPresence],
   )
 
   /*
@@ -323,6 +323,8 @@ export default function DocumentationSpaceShow({
    */
   const [deletingIds, setDeletingIds] = useState<string[]>([])
   const [duplicating, setDuplicating] = useState<string | null>(null)
+  const currentNodes = useRef(graph.nodes)
+  currentNodes.current = graph.nodes
   const nodeById = useCallback((nodeId: string | null) => graph.nodes.find((node) => node.id === nodeId) ?? null, [graph.nodes])
 
   /**
@@ -341,12 +343,12 @@ export default function DocumentationSpaceShow({
       // A leaf has nothing to ask about, so it is copied on the click. The dialog exists
       // for the one decision -- with or without the contents -- and showing it with only
       // one possible answer is a confirmation for its own sake.
-      const node = graph.nodes.find((candidate) => candidate.id === nodeId)
+      const node = currentNodes.current.find((candidate) => candidate.id === nodeId)
 
       if ((node?.childCount ?? 0) === 0) void graph.cloneNode(nodeId, false)
       else setDuplicating(nodeId)
     },
-    [graph],
+    [graph.cloneNode],
   )
 
   const navigateTo = useCallback(
@@ -355,7 +357,7 @@ export default function DocumentationSpaceShow({
       void graph.focusOn(nodeId)
       publishPresence({ focusNodeId: nodeId, selectedNodeId: null })
     },
-    [graph, history, publishPresence],
+    [graph.focusOn, history.reset, publishPresence],
   )
 
   /*
@@ -373,7 +375,15 @@ export default function DocumentationSpaceShow({
     history.reset()
     void graph.ascend()
     publishPresence({ focusNodeId: arriving, selectedNodeId: null })
-  }, [graph, history, publishPresence])
+  }, [graph.trail, graph.ascend, history.reset, publishPresence])
+
+  const deleteNode = useCallback((nodeId: string) => setDeletingIds([nodeId]), [])
+  const autoRenameStarted = useCallback(() => setAutoRenameNodeId(null), [])
+  const reparentNode = useCallback(
+    (nodeId: string, parentNodeId: string | null) =>
+      void graph.reparentNode(nodeId, parentNodeId, graph.focusNodeId),
+    [graph.reparentNode, graph.focusNodeId],
+  )
 
   const inspector = graph.selectedNodeId ? (
     <InspectorPanel
@@ -395,9 +405,9 @@ export default function DocumentationSpaceShow({
       }}
       onSelectNode={followLink}
       onTitleLoaded={history.remember}
-      onDeleteNode={(nodeId) => setDeletingIds([nodeId])}
-      onDeleteRelationship={(relationshipId) => void graph.removeRelationship(relationshipId)}
-      onNodeChanged={() => void graph.refresh()}
+      onDeleteNode={deleteNode}
+      onDeleteRelationship={graph.removeRelationship}
+      onNodeChanged={graph.refresh}
     />
   ) : null
 
@@ -505,26 +515,24 @@ export default function DocumentationSpaceShow({
               editable={mayEdit}
               peers={peers}
               autoRenameNodeId={autoRenameNodeId}
-              onAutoRenameStarted={() => setAutoRenameNodeId(null)}
+              onAutoRenameStarted={autoRenameStarted}
               inspectorWidth={graph.selectedNodeId !== null ? inspectorWidth : 0}
               onSelectNode={selectNode}
               onMoveNode={graph.moveNode}
               onConnectNodes={handleConnectNodes}
-              onCreateNodeAt={(position) => void createNodeAt(position)}
+              onCreateNodeAt={createNodeAt}
               // `n` on the canvas, the same placement as the toolbar's button: the middle
               // of the view, nudged so a run of them does not land in one stack.
               onCreateNode={addNodeAtCentre}
-              onDeleteRelationship={(relationshipId) => void graph.removeRelationship(relationshipId)}
+              onDeleteRelationship={graph.removeRelationship}
               onDive={dive}
               onAscend={ascend}
               // Both paths open the same dialog. One id or many is the only difference.
-              onDeleteNode={(nodeId) => setDeletingIds([nodeId])}
+              onDeleteNode={deleteNode}
               onDeleteNodes={setDeletingIds}
-              onRenameNode={(nodeId, title) => void graph.renameNode(nodeId, title)}
+              onRenameNode={graph.renameNode}
               onDuplicateNode={duplicateNode}
-              onReparentNode={(nodeId, newParentNodeId) =>
-                void graph.reparentNode(nodeId, newParentNodeId, graph.focusNodeId)
-              }
+              onReparentNode={reparentNode}
               onOpenNeighbor={openNeighbor}
               onGoUp={goUp}
             />

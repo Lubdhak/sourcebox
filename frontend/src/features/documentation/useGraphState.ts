@@ -12,7 +12,7 @@ import type { DocumentationNode, NodeRelationship, SpaceGraph, SpatialPosition }
  * The contract every page here follows, applied to the largest document in the app:
  *
  *   Inertia  -- seeds the first paint. The canvas draws real nodes immediately.
- *   GraphQL  -- the authority. Refetched on mount and after every mutation.
+ *   GraphQL  -- reconciles navigation, mutations and structural realtime changes.
  *   Local    -- optimistic. Applied instantly, rolled back to the last server-confirmed
  *               state on failure.
  *
@@ -32,6 +32,7 @@ const MOVE_DEBOUNCE_MS = 350
  * arrive in bursts, so they are batched into one query rather than one per message.
  */
 const REMOTE_REFRESH_DEBOUNCE_MS = 400
+const NO_NODES: DocumentationNode[] = []
 
 interface UseGraphStateOptions {
   spaceId: string
@@ -108,7 +109,9 @@ export function useGraphState({
   initialSelectedNodeId = null,
 }: UseGraphStateOptions): GraphStateApi {
   const [graph, setGraph] = useState<SpaceGraph>(initialGraph)
-  const [focusNodeId, setFocusNodeId] = useState<string | null>(initialFocusNodeId)
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(
+    initialGraph.focusNode === undefined ? initialFocusNodeId : initialGraph.focusNode?.id ?? null,
+  )
   /*
    * The level on screen, for the callbacks that must not be holding an old one.
    *
@@ -136,6 +139,32 @@ export function useGraphState({
   const pendingMoves = useRef<Map<string, SpatialPosition>>(new Map())
   const moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inFlightRefetch = useRef<AbortController | null>(null)
+  const remoteRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const graphGeneration = useRef(0)
+  const seed = useRef({ spaceId, initialGraph })
+
+  useEffect(() => {
+    if (seed.current.spaceId !== spaceId || seed.current.initialGraph !== initialGraph) {
+      seed.current = { spaceId, initialGraph }
+      confirmedGraph.current = initialGraph
+      setGraph(initialGraph)
+      const focus = initialGraph.focusNode === undefined ? initialFocusNodeId : initialGraph.focusNode?.id ?? null
+      focusNodeIdRef.current = focus
+      setFocusNodeId(focus)
+      setSelectedNodeId(initialSelectedNodeId)
+      setError(null)
+      setSaving(false)
+    }
+
+    return () => {
+      graphGeneration.current += 1
+      inFlightRefetch.current?.abort()
+      if (remoteRefreshTimer.current) clearTimeout(remoteRefreshTimer.current)
+      remoteRefreshTimer.current = null
+    }
+    // Focus and selection are only seeds when Inertia delivers a new snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceId, initialGraph])
 
   const reportFailure = useCallback((err: unknown, event: string, fallback: string) => {
     if (err instanceof DOMException && err.name === 'AbortError') return
@@ -155,11 +184,15 @@ export function useGraphState({
 
   const load = useCallback(
     async (focus: string | null, signal?: AbortSignal) => {
+      const generation = graphGeneration.current
       const space = await api.fetchSpaceGraph(
         { id: spaceId, limit: undefined, focusNodeId: focus },
         signal ? { signal } : {},
       )
 
+      if (signal?.aborted || generation !== graphGeneration.current) {
+        throw new DOMException('Graph snapshot was replaced', 'AbortError')
+      }
       setGraph(space.graph)
       confirmedGraph.current = space.graph
 
@@ -169,20 +202,6 @@ export function useGraphState({
     },
     [spaceId],
   )
-
-  useEffect(() => {
-    const controller = new AbortController()
-
-    load(initialFocusNodeId, controller.signal).catch((err: unknown) => {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      logger.warn('frontend.documentation_refetch_failed', {
-        errorMessage: err instanceof Error ? err.message : String(err),
-      })
-    })
-
-    return () => controller.abort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load])
 
   const refresh = useCallback(async () => {
     inFlightRefetch.current?.abort()
@@ -265,6 +284,7 @@ export function useGraphState({
   /* --- Movement --------------------------------------------------------- */
 
   const flushMoves = useCallback(async () => {
+    const snapshot = seed.current
     const batch = Array.from(pendingMoves.current.entries()).map(([nodeId, position]) => ({
       nodeId,
       x: position.x,
@@ -279,6 +299,7 @@ export function useGraphState({
 
     try {
       const confirmed = await api.moveNodes({ spaceId, positions: batch })
+      if (snapshot !== seed.current) return
       const byId = new Map(confirmed.map((node) => [node.id, node.position]))
 
       // Adopt the server's coordinates rather than keeping the optimistic guess. They
@@ -292,10 +313,11 @@ export function useGraphState({
         }),
       }
     } catch (err: unknown) {
+      if (snapshot !== seed.current) return
       setGraph(confirmedGraph.current)
       reportFailure(err, 'frontend.documentation_move_failed', 'Could not save the new position.')
     } finally {
-      setSaving(false)
+      if (snapshot === seed.current) setSaving(false)
     }
   }, [reportFailure, spaceId])
 
@@ -330,7 +352,7 @@ export function useGraphState({
       if (moveTimer.current) clearTimeout(moveTimer.current)
       if (pendingMoves.current.size > 0) void flushMoves()
     },
-    [flushMoves],
+    [flushMoves, initialGraph],
   )
 
   /* --- Structure -------------------------------------------------------- */
@@ -565,8 +587,6 @@ export function useGraphState({
 
   /* --- Collaboration ---------------------------------------------------- */
 
-  const remoteRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   const scheduleRemoteRefresh = useCallback(() => {
     if (remoteRefreshTimer.current) return
 
@@ -745,13 +765,13 @@ export function useGraphState({
     () => ({
       nodes: graph.nodes,
       relationships: graph.relationships,
-      neighbors: graph.neighbors ?? [],
+      neighbors: graph.neighbors ?? NO_NODES,
       nodeCount: graph.nodeCount,
       relationshipCount: graph.relationshipCount,
       truncated: graph.truncated,
       focusNode: graph.focusNode ?? null,
       focusNodeId,
-      trail: graph.trail ?? [],
+      trail: graph.trail ?? NO_NODES,
       dive,
       ascend,
       focusOn,

@@ -20,14 +20,7 @@ if (savedTheme === 'dark' || savedTheme === 'light') {
  * component, and hydrates.
  */
 
-// Eager glob rather than a dynamic import.
-//
-// Eager bundles every page into the initial payload, which for an application this size
-// is faster overall: page transitions are instant with no loading state, and the whole
-// bundle is one cached, hashed file. Switching to `{ eager: false }` gives per-page code
-// splitting, which is the right trade once there are enough pages that most users never
-// visit most of them.
-const pages = import.meta.glob<{ default: ResolvedComponent }>('../pages/**/*.tsx', { eager: true })
+const pages = import.meta.glob<{ default: ResolvedComponent }>('../pages/**/*.tsx')
 
 if (import.meta.hot) {
   import.meta.hot.accept()
@@ -55,7 +48,7 @@ void createInertiaApp({
       )
     }
 
-    return page
+    return page().then((module) => module.default)
   },
 
   // v3's hook for wrapping the whole app. Preferred over mutating each page's `layout`

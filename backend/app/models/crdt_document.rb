@@ -26,6 +26,7 @@ class CrdtDocument < ApplicationRecord
   # of one person typing; low enough that a joiner's first sync stays small, high enough
   # that compaction is not constant.
   COMPACTION_THRESHOLD = 300
+  SYNC_BATCH_SIZE = 100
 
   def self.for_node(node)
     find_or_create_by!(node_id: node.id)
@@ -33,19 +34,34 @@ class CrdtDocument < ApplicationRecord
 
   # Everything a joining client needs to reconstruct the document: the merged snapshot,
   # then the updates recorded since it was taken.
-  def sync_payload
-    pending = updates.where("id > ?", snapshot_seq).to_a
+  def sync_payload(after_seq: nil, limit: nil)
+    # Append takes the same lock: a lower sequence cannot commit after this checkpoint.
+    # Reloading here also prevents a long-lived channel from replaying a deleted log
+    # alongside the snapshot it cached when it first subscribed.
+    with_lock do
+      include_snapshot = after_seq.nil? || after_seq < snapshot_seq
+      start_seq = include_snapshot ? snapshot_seq : after_seq
+      pending = updates.where("id > ?", start_seq)
+      pending = pending.limit(limit) if limit
+      rows = pending.pluck(:id, :payload)
+      seq = rows.last&.first || start_seq
+      more = updates.where("id > ?", seq).exists?
 
-    {
-      snapshot: encode(snapshot),
-      updates: pending.map { |update| encode(update.payload) },
-      seq: pending.last&.id || snapshot_seq,
-      compactionNeeded: pending.size >= COMPACTION_THRESHOLD,
-    }
+      {
+        snapshot: include_snapshot ? encode(snapshot) : nil,
+        updates: rows.map { |_, payload| encode(payload) },
+        seq: seq,
+        syncComplete: !more,
+        compactionNeeded: !more && updates.limit(COMPACTION_THRESHOLD).count >= COMPACTION_THRESHOLD,
+        compactionThreshold: COMPACTION_THRESHOLD,
+      }
+    end
   end
 
   def append(payload, actor_id: nil)
-    updates.create!(payload: payload, actor_id: actor_id, created_at: Time.current)
+    with_lock do
+      updates.create!(payload: payload, actor_id: actor_id, created_at: Time.current)
+    end
   end
 
   # Replaces the log up to `through_seq` with a merged snapshot supplied by a client.
@@ -56,12 +72,14 @@ class CrdtDocument < ApplicationRecord
   # kept and replayed on top of it.
   def compact!(merged_state, through_seq)
     through_seq = through_seq.to_i
-    return false if merged_state.blank? || through_seq <= snapshot_seq
+    return false if merged_state.blank?
 
-    # A sequence from the future would truncate updates the snapshot cannot contain.
-    return false if through_seq > (updates.maximum(:id) || 0)
+    with_lock do
+      return false if through_seq <= snapshot_seq
+      # Validate inside the lock against fresh state. A racing older checkpoint must
+      # never replace a newer snapshot after the latter has already deleted its log.
+      return false unless updates.exists?(id: through_seq)
 
-    transaction do
       update!(snapshot: merged_state, snapshot_seq: through_seq)
       updates.where(id: ..through_seq).delete_all
     end

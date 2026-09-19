@@ -14,7 +14,8 @@
 # must agree, so none of them owns the shape.
 class DocumentationSpacesController < ApplicationController
   def index
-    spaces = current_user.accessible_documentation_spaces.alphabetical.to_a
+    spaces = current_user.accessible_documentation_spaces.alphabetical
+                         .preload(space_memberships: :user).to_a
 
     # Counted in grouped queries rather than per space, so a user with fifty spaces does
     # not produce a hundred COUNTs. The same reasoning covers access: the share control
@@ -23,20 +24,16 @@ class DocumentationSpacesController < ApplicationController
     node_counts = Node.where(documentation_space: spaces).group(:documentation_space_id).count
     relationship_counts = NodeRelationship.where(documentation_space: spaces)
                                           .group(:documentation_space_id).count
-    memberships = SpaceMembership.where(documentation_space_id: spaces.map(&:id))
-                                 .includes(:user)
-                                 .order(:created_at)
-                                 .group_by(&:documentation_space_id)
-
     render inertia: "DocumentationSpace/Index", props: {
       spaces: spaces.map { |space|
-        rows = memberships.fetch(space.id, [])
-        administrator = space.permits?(current_user, :admin)
+        rows = space.space_memberships.sort_by(&:created_at)
+        role = space.role_for(current_user, memberships: rows)
+        administrator = SpaceMembership.allows?(role, DocumentationSpace::MINIMUM_ROLE.fetch(:admin))
 
         Documentation::WireFormat.space(space).merge(
           nodeCount: node_counts.fetch(space.id, 0),
           relationshipCount: relationship_counts.fetch(space.id, 0),
-          viewerRole: space.role_for(current_user)&.upcase,
+          viewerRole: role&.upcase,
           # A viewer is told how many people are here, which is unremarkable, but not
           # who they are: the addresses belong to the team, not to the document.
           memberCount: rows.size + 1,

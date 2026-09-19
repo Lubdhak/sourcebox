@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGraphState } from '@/features/documentation/useGraphState'
 import type { DocumentationNode, SpaceGraph } from '@/types'
@@ -41,9 +41,9 @@ function graph(): SpaceGraph {
   }
 }
 
-function setup() {
+function setup(initialGraph = graph()) {
   return renderHook(() =>
-    useGraphState({ spaceId: SPACE_ID, initialGraph: graph() }),
+    useGraphState({ spaceId: SPACE_ID, initialGraph }),
   )
 }
 
@@ -72,15 +72,94 @@ describe('useGraphState', () => {
     expect(result.current.nodes).toHaveLength(2)
     expect(result.current.relationships).toHaveLength(1)
 
-    // Let the mount refetch settle, so its state update does not land after the test.
-    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
+    expect(api.fetchSpaceGraph).not.toHaveBeenCalled()
   })
 
-  it('refetches on mount, because the snapshot is already stale', async () => {
-    setup()
+  it('uses the complete focused snapshot without a mount refetch', () => {
+    const initialGraph = {
+      ...graph(),
+      focusNode: node('folder', 0, 0),
+      trail: [node('root', 0, 0)],
+      neighbors: [node('elsewhere', 0, 0)],
+    }
+    const { result } = setup(initialGraph)
 
-    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
-    expect(vi.mocked(api.fetchSpaceGraph).mock.calls[0]?.[0]).toMatchObject({ id: SPACE_ID })
+    expect(result.current.focusNodeId).toBe('folder')
+    expect(result.current.focusNode).toBe(initialGraph.focusNode)
+    expect(result.current.trail).toBe(initialGraph.trail)
+    expect(result.current.neighbors).toBe(initialGraph.neighbors)
+    expect(api.fetchSpaceGraph).not.toHaveBeenCalled()
+  })
+
+  it('keeps local edits on rerender but adopts a new Inertia snapshot', () => {
+    const initialGraph = graph()
+    const { result, rerender } = renderHook(
+      (props) => useGraphState(props),
+      { initialProps: { spaceId: SPACE_ID, initialGraph, initialSelectedNodeId: '1' } },
+    )
+    act(() => result.current.selectNode('2'))
+    rerender({ spaceId: SPACE_ID, initialGraph, initialSelectedNodeId: '1' })
+    expect(result.current.selectedNodeId).toBe('2')
+
+    const replacement = { ...graph(), nodes: [node('new', 10, 20)] }
+    rerender({ spaceId: SPACE_ID, initialGraph: replacement, initialSelectedNodeId: 'new' })
+    expect(result.current.nodes).toBe(replacement.nodes)
+    expect(result.current.selectedNodeId).toBe('new')
+    expect(api.fetchSpaceGraph).not.toHaveBeenCalled()
+  })
+
+  it('adopts a new space and ignores a late refresh of the previous space', async () => {
+    const initialGraph = graph()
+    const { result, rerender } = renderHook(
+      (props) => useGraphState(props),
+      { initialProps: { spaceId: SPACE_ID, initialGraph } },
+    )
+    let resolve!: (value: Awaited<ReturnType<typeof api.fetchSpaceGraph>>) => void
+    vi.mocked(api.fetchSpaceGraph).mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    let refresh!: Promise<void>
+    act(() => { refresh = result.current.refresh() })
+
+    const replacement = { ...graph(), nodes: [node('new-space-node', 0, 0)] }
+    rerender({ spaceId: 'other-space', initialGraph: replacement })
+    expect(result.current.nodes).toBe(replacement.nodes)
+    await act(async () => {
+      resolve({ id: SPACE_ID, name: 'Old', slug: 'old', description: null, settings: {}, graph: initialGraph })
+      await refresh
+    })
+    expect(result.current.nodes).toBe(replacement.nodes)
+    expect(result.current.error).toBeNull()
+    expect(api.fetchSpaceGraph).toHaveBeenCalledTimes(1)
+    await act(async () => { await result.current.refresh() })
+    expect(api.fetchSpaceGraph).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'other-space' }),
+      expect.anything(),
+    )
+  })
+
+  it('still coalesces structural realtime changes into a refresh after mount', async () => {
+    vi.useFakeTimers()
+    const { result } = setup()
+    act(() => {
+      result.current.applyRealtime({ type: 'documentation.node_created' })
+      result.current.applyRealtime({ type: 'documentation.node_reparented' })
+    })
+    expect(api.fetchSpaceGraph).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(450) })
+    expect(api.fetchSpaceGraph).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels a queued realtime refresh when Inertia replaces the snapshot', async () => {
+    vi.useFakeTimers()
+    const { result, rerender } = renderHook(
+      (initialGraph) => useGraphState({ spaceId: SPACE_ID, initialGraph }),
+      { initialProps: graph() },
+    )
+    act(() => result.current.applyRealtime({ type: 'documentation.node_created' }))
+    const replacement = graph()
+    rerender(replacement)
+    await act(async () => { await vi.advanceTimersByTimeAsync(450) })
+    expect(api.fetchSpaceGraph).not.toHaveBeenCalled()
+    expect(result.current.nodes).toBe(replacement.nodes)
   })
 
   it('applies a move immediately and sends it once, after the drag settles', async () => {
@@ -231,7 +310,10 @@ describe('useGraphState', () => {
    */
   it('drops deleted cards immediately and clears a selection pointing at one', async () => {
     const { result } = setup()
-    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
+    vi.mocked(api.fetchSpaceGraph).mockResolvedValueOnce({
+      id: SPACE_ID, name: 'Platform', slug: 'platform', description: null, settings: {},
+      graph: { ...graph(), nodes: [node('2', 100, 0)] },
+    })
 
     act(() => result.current.selectNode('1'))
     expect(result.current.selectedNodeId).toBe('1')
@@ -246,7 +328,6 @@ describe('useGraphState', () => {
 
   it('refetches after a deletion rather than reproducing the re-homing rules locally', async () => {
     const { result } = setup()
-    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
 
     const before = vi.mocked(api.fetchSpaceGraph).mock.calls.length
 
@@ -259,7 +340,6 @@ describe('useGraphState', () => {
 
   it('lands with a card selected when the keyboard asked to go in', async () => {
     const { result } = setup()
-    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
 
     await act(async () => {
       await result.current.dive('1', { selectOnArrival: true })
@@ -271,7 +351,6 @@ describe('useGraphState', () => {
 
   it('leaves the selection alone when a mouse went in', async () => {
     const { result } = setup()
-    await waitFor(() => expect(api.fetchSpaceGraph).toHaveBeenCalled())
 
     await act(async () => {
       await result.current.dive('1')
@@ -292,8 +371,7 @@ describe('useGraphState', () => {
       graph: { ...graph(), focusNode: node('2', 100, 0), trail: [] },
     })
 
-    const { result } = setup()
-    await waitFor(() => expect(result.current.focusNodeId).toBe('2'))
+    const { result } = setup({ ...graph(), focusNode: node('2', 100, 0), trail: [] })
 
     await act(async () => {
       await result.current.ascend({ selectOnArrival: true })

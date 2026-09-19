@@ -74,11 +74,15 @@ class DocumentationSpace < ApplicationRecord
   # What this person may do here: "owner", one of SpaceMembership::ROLES, or nil for
   # someone with no access at all. Nil is deliberately not "viewer" -- a stranger is not
   # a reader, and conflating the two is how read-everything bugs get written.
-  def role_for(user)
+  def role_for(user, memberships: nil)
     return nil if user.blank?
     return "owner" if user_id == user.id
 
-    space_memberships.claimed.find_by(user_id: user.id)&.role
+    if memberships
+      memberships.find { |membership| membership.documentation_space_id == id && membership.user_id == user.id }&.role
+    else
+      space_memberships.claimed.find_by(user_id: user.id)&.role
+    end
   end
 
   # The authorization question, asked once. `minimum` is the least privileged role that

@@ -109,25 +109,33 @@ module Documentation
       # selected node's blocks from GraphQL when it opens.
       def graph(snapshot)
         neighbors = Array(snapshot.neighbors)
-        counts = child_counts(snapshot.nodes.map(&:id))
-        # Only the neighbours need a single parent id: the one thing the client does with
-        # a neighbour is go to the level that holds it.
-        neighbor_parents = parent_ids(neighbors.map(&:id))
-        # The cards on the canvas need the parents themselves, named, because the card's
-        # up-a-level control has to offer a choice when a node is filed in several places.
-        parents = parents_by_node(snapshot.nodes.map(&:id))
+        trail = Array(snapshot.trail)
+        node_ids = (snapshot.nodes + neighbors + trail + [ snapshot.focus_node ]).compact.map(&:id).uniq
+        counts = child_counts(node_ids)
+        connections = relationship_counts(node_ids)
+        containing_nodes = parent_ids(node_ids)
+        parents = parents_by_node(node_ids)
+
+        # Initial props must be complete enough to use without an immediate GraphQL
+        # refetch, including the focus, breadcrumb and off-canvas neighbours.
+        serialize = lambda do |record|
+          node(
+            record,
+            child_count: counts.fetch(record.id, 0),
+            parent_id: containing_nodes[record.id],
+            parents: parents.fetch(record.id, [])
+          ).merge(relationshipCount: connections.fetch(record.id, 0))
+        end
 
         {
-          nodes: snapshot.nodes.map do |record|
-            node(record, child_count: counts.fetch(record.id, 0), parents: parents.fetch(record.id, []))
-          end,
+          nodes: snapshot.nodes.map(&serialize),
           relationships: snapshot.relationships.map { |record| relationship(record) },
-          neighbors: neighbors.map { |record| node(record, parent_id: neighbor_parents[record.id]) },
+          neighbors: neighbors.map(&serialize),
           nodeCount: snapshot.node_count,
           relationshipCount: snapshot.relationship_count,
           truncated: snapshot.truncated?,
-          focusNode: snapshot.focus_node ? node(snapshot.focus_node, child_count: counts.fetch(snapshot.focus_node.id, 0)) : nil,
-          trail: Array(snapshot.trail).map { |record| node(record) },
+          focusNode: snapshot.focus_node ? serialize.call(snapshot.focus_node) : nil,
+          trail: trail.map(&serialize),
         }
       end
 
@@ -177,6 +185,15 @@ module Documentation
           .where(source_node_id: node_ids, relationship_type: NodeRelationship::HIERARCHICAL_TYPE)
           .group(:source_node_id)
           .count
+      end
+
+      def relationship_counts(node_ids)
+        return {} if node_ids.blank?
+
+        outgoing = NodeRelationship.where(source_node_id: node_ids).group(:source_node_id).count
+        incoming = NodeRelationship.where(target_node_id: node_ids).group(:target_node_id).count
+
+        node_ids.to_h { |id| [ id, outgoing.fetch(id, 0) + incoming.fetch(id, 0) ] }
       end
     end
   end

@@ -8,8 +8,7 @@ class DocumentationSpacesControllerTest < ActionDispatch::IntegrationTest
   setup do
     @user = create_user
     @space = create_space(user: @user, name: "Platform")
-    @layer = create_layer(space: @space, index: 0, name: "System")
-    @node = create_node(space: @space, title: "API Gateway", layer: @layer, x: 10, y: 20)
+    @node = create_node(space: @space, title: "API Gateway", x: 10, y: 20)
     @other = create_node(space: @space, title: "Order Service", x: 300, y: 20)
     create_relationship(source: @node, target: @other, relationship_type: "calls")
   end
@@ -46,13 +45,11 @@ class DocumentationSpacesControllerTest < ActionDispatch::IntegrationTest
     props = inertia_props
 
     assert_equal @space.public_id, props.dig("space", "id")
-    assert_equal [ "System" ], props.dig("space", "layers").map { |layer| layer["name"] }
 
     node = props.dig("initialGraph", "nodes").find { |candidate| candidate["title"] == "API Gateway" }
     assert_equal({ "x" => 10.0, "y" => 20.0, "z" => 0.0 }, node["position"])
     assert_equal({ "width" => 240.0, "height" => 120.0, "depth" => 0.0 }, node["size"])
-    assert_equal @layer.id.to_s, node["layerId"]
-    assert_equal "service", node["nodeType"]
+    assert_equal 1, node["relationshipCount"]
 
     relationship = props.dig("initialGraph", "relationships").first
     assert_equal "calls", relationship["relationshipType"]
@@ -79,7 +76,6 @@ class DocumentationSpacesControllerTest < ActionDispatch::IntegrationTest
 
     props = inertia_props
 
-    assert_includes props.fetch("nodeTypes"), "service"
     assert_includes props.fetch("relationshipTypes"), "depends_on"
     assert_includes props.fetch("blockTypes"), "MARKDOWN"
   end
@@ -100,7 +96,44 @@ class DocumentationSpacesControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to documentation_spaces_path
   end
 
+  test "index keeps shared roles and membership visibility without per-space queries" do
+    viewer = create_user
+    share(space: @space, user: viewer, role: "viewer")
+    sign_in viewer
+    get documentation_spaces_path
+    single_count = membership_query_count
+
+    %w[editor admin].each do |role|
+      space = create_space(user: @user, name: role.capitalize)
+      share(space: space, user: viewer, role: role)
+      invite(space: space, email: "pending@example.com")
+    end
+
+    assert_equal single_count, membership_query_count
+    spaces = inertia_props.fetch("spaces").index_by { |space| space["name"] }
+    assert_equal "VIEWER", spaces.fetch("Platform")["viewerRole"]
+    assert_empty spaces.fetch("Platform")["memberships"]
+    assert_equal "EDITOR", spaces.fetch("Editor")["viewerRole"]
+    assert_empty spaces.fetch("Editor")["memberships"]
+    assert_equal "ADMIN", spaces.fetch("Admin")["viewerRole"]
+    assert_equal 2, spaces.fetch("Admin")["memberships"].size
+    assert_equal 3, spaces.fetch("Admin")["memberCount"]
+  end
+
   private
+
+  def membership_query_count
+    queries = 0
+    counter = lambda do |event|
+      payload = event.payload
+      queries += 1 if payload[:sql].match?(/SELECT.*FROM "space_memberships"/)
+    end
+    ActiveRecord::Base.uncached do
+      ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { get documentation_spaces_path }
+    end
+    assert_response :success
+    queries
+  end
 
   # Inertia serializes the initial page into a JSON script element next to the root div
   # (`use_script_element_for_initial_page`). Reading it is how a request test inspects

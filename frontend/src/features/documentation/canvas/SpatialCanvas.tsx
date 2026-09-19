@@ -91,6 +91,51 @@ const ARROW_STEPS: Record<string, { dx: number; dy: number }> = {
  */
 type CanvasNode = FlowNode<NodeCardData, 'documentation'> | FlowNode<NeighborCardData, 'neighbor'>
 
+function sameCardData(left: CanvasNode['data'], right: CanvasNode['data']): boolean {
+  const keys = Object.keys(right)
+  return keys.length === Object.keys(left).length && keys.every((key) => {
+    const a = left[key]
+    const b = right[key]
+    return a === b || (
+      Array.isArray(a) && Array.isArray(b) &&
+      a.length === b.length && a.every((value, index) => value === b[index])
+    )
+  })
+}
+
+/** Keep React Flow's measurements and local gestures without invalidating unchanged cards. */
+export function reconcileCanvasNodes(
+  current: CanvasNode[],
+  incoming: CanvasNode[],
+  preserveSelection: boolean,
+): CanvasNode[] {
+  const previous = new Map(current.map((node) => [node.id, node]))
+  const next = incoming.map((node) => {
+    const prior = previous.get(node.id)
+    if (!prior || prior.type !== node.type) return node
+
+    const position = prior.dragging || (
+      prior.position.x === node.position.x && prior.position.y === node.position.y
+    ) ? prior.position : node.position
+    const data = sameCardData(prior.data, node.data) ? prior.data : node.data
+    const merged = {
+      ...prior,
+      ...node,
+      data,
+      position,
+      selected: preserveSelection ? prior.selected ?? node.selected : node.selected,
+    } as CanvasNode
+
+    return Object.keys(merged).every((key) =>
+      merged[key as keyof CanvasNode] === prior[key as keyof CanvasNode],
+    ) ? prior : merged
+  })
+
+  return next.length === current.length && next.every((node, index) => node === current[index])
+    ? current
+    : next
+}
+
 /**
  * Where a dragged card would be filed if it were let go now.
  *
@@ -814,29 +859,9 @@ export const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>
    * element cannot take the focus.
    */
   useEffect(() => {
-    setFlowNodes((current) => {
-      const previous = new Map(current.map((node) => [node.id, node]))
-
-      return toFlowNodes(nodes).map((node) => {
-        const prior = previous.get(node.id)
-        if (!prior) return node
-
-        return {
-          ...node,
-          // While an area selection is active, React Flow owns the selection: a server
-          // sync must not wipe what the user has just rubber-banded. Otherwise the
-          // domain owns it, so a selection made from search or navigation still lands.
-          selected: multiSelectActiveRef.current ? prior.selected ?? node.selected : node.selected,
-          measured: prior.measured ?? node.measured,
-          // A card under the pointer keeps the position the drag is giving it. The domain
-          // still holds where it started -- it is not told until the drag ends -- so
-          // taking the position from there mid-gesture would snap the card out of the
-          // user's hand. That happens whenever anything re-syncs during a drag, including
-          // a collaborator's edit arriving.
-          ...(prior.dragging ? { position: prior.position, dragging: true } : {}),
-        }
-      })
-    })
+    setFlowNodes((current) =>
+      reconcileCanvasNodes(current, toFlowNodes(nodes), multiSelectActiveRef.current),
+    )
   }, [nodes, toFlowNodes])
 
   /*
