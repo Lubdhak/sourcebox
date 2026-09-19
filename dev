@@ -103,9 +103,25 @@ applescript_quote() {
 # --- Preflight ----------------------------------------------------------
 
 require_docker() {
+  # Docker Desktop's per-user CLI install is not always on a fresh terminal's PATH.
+  # Keep this local to the launcher; do not change shell profiles or system symlinks.
+  if ! command -v docker >/dev/null 2>&1 && [ "$(uname -s)" = "Darwin" ]; then
+    local docker_bin
+    for docker_bin in \
+      "$HOME/.docker/bin" \
+      "/Applications/Docker.app/Contents/Resources/bin" \
+      "$HOME/Applications/Docker.app/Contents/Resources/bin"; do
+      if [ -x "$docker_bin/docker" ]; then
+        export PATH="$docker_bin:$PATH"
+        break
+      fi
+    done
+  fi
+
   command -v docker >/dev/null 2>&1 || die \
-    "Docker is not installed." \
-    "Install Docker Desktop: https://docs.docker.com/desktop/"
+    "Docker CLI was not found on PATH or in the standard Docker Desktop locations." \
+    "If Docker is installed elsewhere, add its bin directory to PATH and re-run ./dev." \
+    "Otherwise install Docker Desktop: https://docs.docker.com/desktop/"
 
   docker compose version >/dev/null 2>&1 || die \
     "The Docker Compose v2 plugin is unavailable." \
@@ -301,8 +317,10 @@ require_iterm() {
 # while writing the file.
 log_window_command() {
   local service="$1"
-  printf 'cd %s && docker compose -p %s logs -f --tail=%s %s 2>&1 | tee %s' \
+  # iTerm starts a separate shell, so pass along the CLI and credential-helper PATH.
+  printf 'cd %s && PATH=%s docker compose -p %s logs -f --tail=%s %s 2>&1 | tee %s' \
     "$(shell_quote "$PROJECT_ROOT")" \
+    "$(shell_quote "$PATH")" \
     "$(shell_quote "$COMPOSE_PROJECT")" \
     "$(shell_quote "$LOG_TAIL")" \
     "$(shell_quote "$service")" \
